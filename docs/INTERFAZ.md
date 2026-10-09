@@ -15,7 +15,7 @@ La interfaz utiliza verde #4EB852, morado #9763A8 y gris #A9ABAE, con blanco y n
 ## Módulos y datos
 
 - **Dashboard:** capital original prestado, capital pendiente, total cobrado, interés cobrado, pagos recibidos hoy, cuotas vencidas, préstamos activos y liquidados. Capital pendiente excluye interés; Saldo en el panel general incluye ambos. «Cobros de hoy y esta semana» consulta el cronograma vigente y muestra cuotas pagadas, pendientes y vencidas.
-- **Panel general:** mantiene las columnas, filtros, exportación y reglas de atraso existentes: de 1 a 6 días «Se atrasó X días», desde 7 «En mora». La refinanciación se muestra por separado.
+- **Panel general:** mantiene las columnas, filtros, exportación y reglas de atraso existentes: de 1 a 6 días «Se atrasó X días», desde 7 «En mora». La refinanciación se muestra por separado. La búsqueda es por nombre, DNI o stand; no hay filtro por rango de fechas.
 - **Clientes:** búsqueda por nombre/DNI/stand, filtro de condición y formularios por secciones. «Ver detalle» consulta únicamente los préstamos de ese cliente; desde allí se abre su cronograma e historial.
 - **Préstamos:** productos autorizados, vista previa de cuotas y confirmación del desembolso.
 - **Cobros semanales:** cuotas pendientes, vencidas, pagadas o todas, con acceso al cobro y al enlace de recordatorio por WhatsApp. Abrir WhatsApp no envía el mensaje automáticamente.

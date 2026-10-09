@@ -93,8 +93,6 @@ export default function FinancialWorkspace({
   const [collectionFilter, setCollectionFilter] = useState("pendientes");
   const [stateFilter, setStateFilter] = useState("todos");
   const [memberFilter, setMemberFilter] = useState("todos");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
   const [showNew, setShowNew] = useState(false);
   const [selected, setSelected] = useState("");
   const [productId, setProductId] = useState("");
@@ -157,25 +155,14 @@ export default function FinancialWorkspace({
   const current = (loanId: string) =>
     data.periods.find((p) => p.loan_id === loanId && p.is_current);
   const loanById = (id: string) => data.loans.find((l) => l.id === id);
-  const within = (date: string) =>
-    (!from || date >= from) && (!to || date <= to);
   const matches = (loan: Loan) =>
     (!clientFocus || loan.client_id === clientFocus) &&
     `${customer(loan)?.full_name ?? ""} ${customer(loan)?.dni ?? ""} ${customer(loan)?.stand_code ?? ""}`
       .toLowerCase()
       .includes(search.toLowerCase());
-  const loans = data.loans.filter(
-    (l) =>
-      matches(l) &&
-      within(
-        data.periods.find((p) => p.loan_id === l.id && p.number === 1)
-          ?.start_date ?? "",
-      ),
-  );
+  const loans = data.loans.filter(matches);
   const payments = data.payments.filter(
-    (p) =>
-      within(p.paid_on) &&
-      Boolean(loanById(p.loan_id) && matches(loanById(p.loan_id)!)),
+    (p) => Boolean(loanById(p.loan_id) && matches(loanById(p.loan_id)!)),
   );
   const installments = data.installments.filter(
     (i) =>
@@ -299,7 +286,7 @@ export default function FinancialWorkspace({
       downloadCSV("cuotas-vencidas.csv", [
         ["Cliente", "Cuota", "Vencimiento", "Saldo PEN"],
         ...installments
-          .filter((i) => i.due_date < today && within(i.due_date))
+          .filter((i) => i.due_date < today)
           .map((i) => [
             customer(loanById(i.loan_id)!)?.full_name ?? "",
             i.number,
@@ -314,7 +301,6 @@ export default function FinancialWorkspace({
           .filter(
             (p) =>
               p.number > 1 &&
-              within(p.start_date) &&
               Boolean(loanById(p.loan_id) && matches(loanById(p.loan_id)!)),
           )
           .map((p) => [
@@ -408,7 +394,6 @@ export default function FinancialWorkspace({
   const collectionRows = visibleSchedule
     .filter(
       (i) =>
-        within(i.due_date) &&
         (collectionFilter === "todos" ||
           (collectionFilter === "pagadas"
             ? i.pending_cents === 0
@@ -421,7 +406,6 @@ export default function FinancialWorkspace({
     .filter(
       (p) =>
         p.number > 1 &&
-        within(p.start_date) &&
         Boolean(loanById(p.loan_id) && matches(loanById(p.loan_id)!)),
     )
     .sort((a, b) => b.start_date.localeCompare(a.start_date));
@@ -574,7 +558,7 @@ export default function FinancialWorkspace({
       if (kind === "pagos") selectedIds = payments.map((p) => p.loan_id);
       if (kind === "vencidos")
         selectedIds = installments
-          .filter((i) => i.due_date < today && within(i.due_date))
+          .filter((i) => i.due_date < today)
           .map((i) => i.loan_id);
       if (kind === "refinanciaciones")
         selectedIds = refinanced.map((p) => p.loan_id);
@@ -584,7 +568,7 @@ export default function FinancialWorkspace({
           ...data,
           today,
           selectedLoanIds: [...new Set(selectedIds)],
-          description: `Selección: ${kind}. Búsqueda: ${search || "todos"}. Desde: ${from || "sin límite"}. Hasta: ${to || "sin límite"}. Incluye el historial completo de los préstamos seleccionados.`,
+          description: `Selección: ${kind}. Búsqueda: ${search || "todos"}. Incluye el historial completo de los préstamos seleccionados.`,
         },
         `pm-creditos-${kind}.xlsx`,
       );
@@ -654,7 +638,7 @@ export default function FinancialWorkspace({
         </div>
       </div>
       <Card className="!p-4">
-        <div className="grid items-end gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_180px_180px]">
+        <div className="max-w-xl">
           <label>
             Buscar cliente / DNI / stand
             <div className="relative">
@@ -671,30 +655,8 @@ export default function FinancialWorkspace({
               />
             </div>
           </label>
-          <label>
-            Desde
-            <input
-              type="date"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-            />
-          </label>
-          <label>
-            Hasta
-            <input
-              type="date"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-            />
-          </label>
         </div>
       </Card>
-      {(from || to) && (
-        <p className="text-xs leading-5 text-slate-500">
-          El rango filtra préstamos por desembolso y pagos por fecha de pago.
-          Los saldos y alertas corresponden a hoy en Lima.
-        </p>
-      )}
       {tab === "general" && (
         <>
           <div className="flex flex-wrap items-end justify-between gap-4">
