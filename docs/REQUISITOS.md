@@ -22,7 +22,7 @@ El administrador elige explícitamente uno de los tres productos. No se permiten
 
 ## Modelo implementado
 
-`profiles`, `clients`, `audit_events`, `loans`, `loan_periods`, `installments`, `payments`, `payment_installments` y vista `installment_balances`. No existe tabla ni función de anulaciones.
+`profiles`, `clients` (código de stand y condición socio/trabajador), `audit_events`, `loans`, `loan_periods`, `installments`, `payments`, `payment_installments` y vista `installment_balances`. No existe tabla ni función de anulaciones.
 
 RPC `create_loan`, `record_payment`, `refinance_loan`: transacciones atómicas, bloqueo del préstamo/cliente y claves UUID de idempotencia. No hay permisos de escritura financiera directa para usuarios autenticados. Las consultas y vistas respetan RLS. Auditoría registra usuario, operación, entidad y hora, sin duplicar datos personales.
 
@@ -35,3 +35,7 @@ Falta crear proyecto Supabase, aplicar ambas migraciones, asignar usuarios/roles
 No se recibió PRESTAMOS - PM.xlsx. Se preparó revisión XLSX mediante columnas documentadas; la adaptación de sus hojas y fórmulas al archivo original queda pendiente. No hay importación automática de datos históricos ni generación ficticia de pagos para cuadrar saldos.
 
 No se declara apto para operaciones reales antes de completar la validación de integración y las decisiones pendientes.
+
+## Panel y estados aprobados
+
+Código de stand y condición obligatorios para nuevos registros y edición; datos anteriores sin identificación se completan manualmente. Se permite que socio y trabajadores compartan stand. Panel con una fila por préstamo, fecha original, Saldo incluyendo intereses, cuota programada, día/fecha del pendiente más antiguo, atraso en días y refinanciación independiente. Puntual sin vencidos; Se atrasó X días de 1 a 6; En mora desde 7. Se conservan préstamos liquidados e historial. Migración 003 necesaria para actualizar proyectos existentes sin repetir 001/002.

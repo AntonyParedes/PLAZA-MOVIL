@@ -29,7 +29,7 @@ No crear worktrees durante configuración: las tareas de nube ya están aisladas
 
 1. Crear proyecto Supabase. Copiar `.env.example` a `.env.local` (ignorado), sin sobreescribir configuración existente.
 2. Configurar `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. La clave publicable es pública; jamás utilizar `service_role` en una variable `NEXT_PUBLIC_*`.
-3. Aplicar primero `supabase/migrations/202610090001_clients_security.sql` y después `supabase/migrations/202610090002_financial_operations.sql` en SQL Editor una sola vez cada una. Son migraciones iniciales, no scripts para ejecutar repetidamente.
+3. Aplicar primero `supabase/migrations/202610090001_clients_security.sql` después `supabase/migrations/202610090002_financial_operations.sql` y finalmente `supabase/migrations/202610090003_client_stand.sql` en SQL Editor una sola vez cada una. Son migraciones iniciales, no scripts para ejecutar repetidamente.
 4. Crear usuarios desde Supabase Authentication con contraseña segura; desactivar registro público en los ajustes de Auth. No hay registro de usuarios desde la aplicación.
 5. El responsable del proyecto asigna el perfil desde SQL Editor (UUID real del usuario):
 
@@ -59,3 +59,13 @@ Los CSV incluyen BOM y comillas para Excel; los campos de texto neutralizan fór
 ## Pruebas de navegador
 
 `npm run test:e2e` usa Chromium del sistema (`/usr/bin/chromium`; ruta alternativa con `CHROMIUM_PATH`) y un servidor temporal en el puerto 3100. Antes de ejecutarlo, detener solo servidores Next.js de este checkout que hayas iniciado, para evitar el bloqueo de desarrollo compartido; reiniciar el servidor de trabajo después. Las respuestas de Supabase están simuladas: se verifica navegación por rol, selección de productos, envío de RPC, exportación y carga de un XLSX de prueba. No se utiliza un proyecto Supabase ni se escriben datos reales.
+
+## Actualización: identificación y panel general
+
+Clientes: código de stand y condición socio/trabajador son obligatorios al registrar o editar. Personas distintas pueden compartir un stand. Los clientes anteriores conservan datos y operaciones y aparecen como «Por registrar» hasta completar su identificación. Sus pagos y refinanciaciones continúan funcionando; antes de crear un nuevo préstamo hay que completar la identificación.
+
+**En un proyecto existente que ya ejecutó las migraciones 001 y 002, ejecutar únicamente `supabase/migrations/202610090003_client_stand.sql`, una sola vez. No repetir las migraciones iniciales.** En un proyecto nuevo, aplicar las tres en orden. Esta migración agrega columnas y validaciones, sin borrar ni recalcular préstamos o pagos.
+
+Panel general: una fila por préstamo, con nombres y apellidos, stand, condición, fecha original de desembolso, Saldo (capital + interés pendientes), cuota semanal programada, día y fecha de la cuota pendiente más antigua, estado, días de atraso y marca independiente de refinanciación. Los préstamos liquidados muestran saldo cero y sin día de pago pendiente. Filtra por nombre/DNI/stand, fecha de desembolso, condición y estado; exporta CSV.
+
+Clasificación aprobada: sin cuotas vencidas pendientes = Puntual; de 1 a 6 días = «Se atrasó X días»; desde 7 días = En mora. Se cuenta desde la cuota vigente impaga más antigua, incluyendo pagos parciales, según fecha de Lima. Las cuotas históricas de refinanciaciones no duplican deuda ni atraso. La clasificación es visual y no genera cargos. La fecha de Lima se actualiza cada minuto mientras el panel está abierto.

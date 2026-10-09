@@ -2,7 +2,7 @@ export type Loan = { id: string; client_id: string; original_capital: number; ca
 export type Period = { id: string; loan_id: string; number: number; start_date: string; end_date: string; months: number; opening_capital: number; interest_generated: number; interest_settled_on: string | null; is_current: boolean };
 export type Payment = { id: string; loan_id: string; period_id: string; amount_cents: number; interest_cents: number; capital_cents: number; paid_on: string; created_at: string };
 export type Installment = { id: string; period_id: string; loan_id: string; number: number; due_date: string; scheduled_cents: number; paid_cents: number; pending_cents: number; is_current: boolean; status: string };
-export type Customer = { id: string; full_name: string; dni: string; phone: string };
+export type Customer = { id: string; full_name: string; dni: string; phone: string; stand_code: string | null; member_type: 'socio' | 'trabajador' | null };
 export function limaDate(now = new Date()): string {
  const parts = new Intl.DateTimeFormat('en-US', {timeZone:'America/Lima', year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
  const part=(type:string)=>parts.find(p=>p.type===type)!.value;
