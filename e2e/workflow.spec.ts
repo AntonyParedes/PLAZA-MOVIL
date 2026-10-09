@@ -78,3 +78,27 @@ test('Excel muestra duplicados, saldos inconsistentes y fórmulas sin escribir a
  await expect(page.getByText(/Contiene fórmulas:/)).toBeVisible();
  expect(calls).toHaveLength(0);
 });
+
+test('conserva el acceso al volver a la pestaña y al restaurar la sesión; salir explícitamente sigue funcionando',async({page})=>{
+ await mockSupabase(page,'administrador');await login(page);
+ await page.getByRole('button',{name:'Clientes',exact:true}).click();
+ await expect(page.getByText('Cliente de prueba',{exact:true})).toBeVisible();
+ // Exercise the real Supabase SDK visibility handler and wait for its auth notification.
+ await page.evaluate(async()=>{
+  const key=Object.keys(localStorage).find(key=>key.startsWith('sb-')&&key.endsWith('-auth-token'))!;
+  await new Promise<void>(resolve=>{
+   const observer=new BroadcastChannel(key);
+   observer.onmessage=event=>{if(event.data.event==='SIGNED_IN'){observer.close();resolve();}};
+   window.dispatchEvent(new Event('visibilitychange'));
+  });
+  await new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())));
+ });
+ await expect(page.getByText('Cliente de prueba',{exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Clientes',exact:true})).toBeEnabled();
+ await page.reload();
+ await expect(page.getByRole('heading',{name:'administrador',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Cerrar sesión',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Iniciar sesión',exact:true})).toBeVisible();
+ await page.reload();
+ await expect(page.getByRole('heading',{name:'Iniciar sesión',exact:true})).toBeVisible();
+});

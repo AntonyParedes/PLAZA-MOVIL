@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { z } from 'zod';
 import { Landmark, Users, ShieldCheck, LogOut, Search, Plus, ArrowRight } from 'lucide-react';
 import { getSupabase } from '@/lib/supabase';
@@ -12,6 +12,7 @@ const clientSchema = z.object({ full_name: z.string().trim().min(3).max(150), dn
 const supabase = getSupabase();
 export default function Workspace() {
   const [userId, setUserId] = useState<string | null>(null);
+  const sessionUserId = useRef<string | null>(null);
   const [role, setRole] = useState<'administrador' | 'jefe' | null>(null);
   const [loading, setLoading] = useState(Boolean(supabase));
   const [busy, setBusy] = useState(false);
@@ -25,7 +26,22 @@ export default function Workspace() {
     if (!supabase) return;
     let active = true;
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (active) { setUserId(session?.user.id ?? null); setLoading(false); setRole(null); setClients([]); }
+      if (!active) return;
+      const nextUserId = session?.user.id ?? null;
+      // SIGNED_IN can repeat when a tab regains focus; TOKEN_REFRESHED also keeps the same user.
+      // Clear user data only when identity changes or the session actually ends.
+      if (nextUserId !== sessionUserId.current) {
+        sessionUserId.current = nextUserId;
+        setUserId(nextUserId);
+        setRole(null);
+        setClients([]);
+        setMessage('');
+        setShowForm(false);
+        setEditing(null);
+        setSearch('');
+        setSection('inicio');
+      }
+      setLoading(false);
     });
     return () => { active = false; data.subscription.unsubscribe(); };
   }, []);
