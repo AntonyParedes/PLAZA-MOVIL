@@ -69,3 +69,11 @@ Clientes: código de stand y condición socio/trabajador son obligatorios al reg
 Panel general: una fila por préstamo, con nombres y apellidos, stand, condición, fecha original de desembolso, Saldo (capital + interés pendientes), cuota semanal programada, día y fecha de la cuota pendiente más antigua, estado, días de atraso y marca independiente de refinanciación. Los préstamos liquidados muestran saldo cero y sin día de pago pendiente. Filtra por nombre/DNI/stand, fecha de desembolso, condición y estado; exporta CSV.
 
 Clasificación aprobada: sin cuotas vencidas pendientes = Puntual; de 1 a 6 días = «Se atrasó X días»; desde 7 días = En mora. Se cuenta desde la cuota vigente impaga más antigua, incluyendo pagos parciales, según fecha de Lima. Las cuotas históricas de refinanciaciones no duplican deuda ni atraso. La clasificación es visual y no genera cargos. La fecha de Lima se actualiza cada minuto mientras el panel está abierto.
+
+## Interfaz y recepción de cobros
+
+Navegación por módulos, Dashboard de cobros, menú plegable en escritorio, menú adaptable en tablet/móvil, formularios por secciones y detalles en paneles laterales. Las tablas se convierten en tarjetas en celulares. Ver [decisiones visuales, módulos y pruebas](docs/INTERFAZ.md).
+
+Desde Cobros semanales o el detalle del préstamo se puede ingresar un importe libre, completar 1/2/3 cuotas pendientes con accesos rápidos o liquidar capital + interés pendiente. Los botones preparan el importe; «Confirmar pago» conserva la confirmación y la operación financiera existentes. Las cuotas se completan desde la más antigua, contemplando abonos parciales.
+
+Este rediseño no necesita migraciones nuevas ni cambios en las variables de entorno. Un proyecto existente debe tener las migraciones 001, 002 y 003 aplicadas. Publicar el nuevo commit mediante el despliegue habitual de Vercel.

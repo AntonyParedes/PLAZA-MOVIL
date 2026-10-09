@@ -1,7 +1,205 @@
-@import "tailwindcss";
-:root { --background: #f5f7fa; --foreground: #172b3a; }
-@theme inline { --color-background: var(--background); --color-foreground: var(--foreground); }
-body { background: var(--background); color: var(--foreground); font-family: Arial, Helvetica, sans-serif; }
-input, textarea { width: 100%; border: 1px solid #cbd5e1; border-radius: .5rem; background: white; padding: .65rem .8rem; margin-top: .3rem; }
-input:focus, textarea:focus { outline: 2px solid #0f766e; outline-offset: 2px; }
-label { font-size: .875rem; font-weight: 600; }
+:root {
+  --background: #f6f8fc;
+  --foreground: #14213b;
+  --navy: #101e39;
+  --primary: #2563eb;
+  --border: #e5eaf2;
+}
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-geist), Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  button,
+  input,
+  textarea,
+  select,
+  summary {
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:not(:disabled),
+  summary {
+    cursor: pointer;
+  }
+  input,
+  textarea,
+  select {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    border: 1px solid #dce3ed;
+    border-radius: 0.75rem;
+    background: white;
+    padding: 0.7rem 0.85rem;
+    margin-top: 0.4rem;
+    color: #172b4d;
+    font-size: 0.875rem;
+    font-weight: 400;
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: #64748b;
+  }
+  input:focus,
+  textarea:focus,
+  select:focus {
+    border-color: var(--primary);
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+  }
+  label {
+    display: block;
+    min-width: 0;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #475569;
+  }
+  :focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 3px;
+  }
+}
+.surface {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: white;
+  box-shadow: 0 2px 5px #14213b03;
+}
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  top: -80px;
+  left: 16px;
+  border-radius: 8px;
+  background: white;
+  color: #172b4d;
+  padding: 12px 20px;
+}
+.skip-link:focus {
+  top: 12px;
+}
+.table-scroll {
+  position: relative;
+  overflow-x: auto;
+}
+.data-table th {
+  padding: 1rem;
+  background: #f9fafc;
+  color: #64748b;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.data-table td {
+  padding: 1rem;
+  border-top: 1px solid #eef1f6;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.data-table td:first-child {
+  min-width: 160px;
+}
+.data-table tbody tr:hover {
+  background: #fafbfe;
+}
+.data-table table {
+  border-collapse: collapse;
+}
+.data-table {
+  overflow: hidden;
+}
+.detail-sheet {
+  max-height: 100dvh;
+}
+.user-menu summary {
+  list-style: none;
+}
+.user-menu summary::-webkit-details-marker {
+  display: none;
+}
+@media (max-width: 767px) {
+  .data-table {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .data-table .table-scroll {
+    overflow: visible;
+  }
+  .data-table table,
+  .data-table tbody {
+    display: block;
+    width: 100%;
+  }
+  .data-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .data-table tr {
+    display: block;
+    margin-bottom: 0.85rem;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    background: white;
+  }
+  .data-table td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.65rem 0;
+    border-color: #f1f5f9;
+    text-align: right;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .data-table td:first-child {
+    min-width: 0;
+    border: 0;
+  }
+  .data-table td::before {
+    content: attr(data-label);
+    flex: 0 0 38%;
+    text-align: left;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #64748b;
+  }
+  .data-table td > * {
+    min-width: 0;
+  }
+  .data-table td[data-label="Acción"],
+  .data-table td[data-label="Detalle"] {
+    justify-content: flex-end;
+  }
+  .data-table td[data-label="Acción"]::before,
+  .data-table td[data-label="Detalle"]::before {
+    flex: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
