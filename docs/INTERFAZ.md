@@ -38,3 +38,11 @@ Las pruebas Playwright verifican el acceso por rol, persistencia de sesión al v
 Las respuestas Supabase de estas pruebas están interceptadas; la suite PGlite comprueba las operaciones SQL localmente. Esto no acredita la integración ni la concurrencia en el proyecto Supabase de producción.
 
 El rediseño se activa con el despliegue habitual de GitHub a Vercel. No requiere SQL adicional; un proyecto existente debe tener aplicadas previamente las migraciones 001, 002 y 003.
+
+## Recordatorios personales por WhatsApp
+
+El botón abre `wa.me` para el celular peruano del cliente con un texto preparado: nombre, número de cuota, fecha de vencimiento, saldo pendiente, estado de la cuota y días de atraso. Desde 7 días de atraso se indica «En mora». Si la cuota seleccionada tiene menos atraso que otra cuota pendiente del préstamo, el texto distingue el estado de esa cuota del atraso más antiguo del préstamo. Las cuotas históricas no generan mora; los abonos parciales reducen el importe solicitado y conservan la fecha de vencimiento.
+
+En caso de atraso se incluye «El atraso puede generar penalidades según las condiciones de tu préstamo». No se ha definido un plazo de penalidad ni se generan cargos. La firma es «Atentamente, La Gerencia, PM Créditos».
+
+El mensaje sale desde la cuenta de WhatsApp del operador cuando pulsa Enviar en WhatsApp. Abrir el enlace no envía automáticamente ni inicia solicitudes a un servicio de mensajería.

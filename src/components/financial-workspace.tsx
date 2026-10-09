@@ -21,6 +21,7 @@ import {
   type Installment,
 } from "@/lib/portal";
 import { collectionStatus, weekdayLabel } from "@/lib/collection-status";
+import { whatsappReminder } from "@/lib/whatsapp-reminder";
 import { Button } from "@/components/ui/button";
 import {
   RefreshCw,
@@ -491,7 +492,9 @@ export default function FinancialWorkspace({
         rows={rows.map((i) => {
           const l = loanById(i.loan_id)!;
           const c = customer(l);
-          const text = `Hola ${c?.full_name}, te recordamos tu cuota de ${money(i.pending_cents)} con vencimiento ${dateLabel(i.due_date)}. PM Créditos.`;
+          const text = c
+            ? whatsappReminder(c, l, i, data.periods, data.installments, today)
+            : "";
           return [
             customerCell(l),
             i.number,

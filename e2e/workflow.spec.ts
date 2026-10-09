@@ -747,3 +747,34 @@ test("cobro de varias cuotas calcula pendientes parciales y liquidación complet
     p_paid_on: today,
   });
 });
+
+test("recordatorio WhatsApp prepara estado, días de mora, advertencia y firma sin enviar mensajes", async ({
+  page,
+}) => {
+  const calls = await mockSupabase(
+    page,
+    "administrador",
+    await dashboardFixtures(),
+  );
+  await login(page);
+  await navigateModule(page, "Cobros semanales");
+  const link = page
+    .getByRole("row")
+    .filter({ hasText: "Luis Trabajador" })
+    .getByRole("link", {
+      name: "Recordar pago a Luis Trabajador por WhatsApp",
+      exact: true,
+    });
+  const href = await link.getAttribute("href");
+  const url = new URL(href!);
+  const text = url.searchParams.get("text")!;
+  expect(url.origin).toBe("https://wa.me");
+  expect(url.pathname).toBe("/51999999999");
+  expect(text).toContain("Estado de la cuota: En mora");
+  expect(text).toContain("Días de atraso de esta cuota: 7 días");
+  expect(text).toContain(
+    "El atraso puede generar penalidades según las condiciones de tu préstamo.",
+  );
+  expect(text).toContain("Atentamente,\nLa Gerencia\nPM Créditos");
+  expect(calls).toHaveLength(0);
+});
