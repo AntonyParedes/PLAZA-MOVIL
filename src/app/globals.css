@@ -290,3 +290,20 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+.client-account {
+  background: var(--neutral-50);
+  border-color: var(--border);
+}
+.client-account-success {
+  background: var(--success-bg);
+  border-color: var(--success-border);
+}
+.client-account-warning {
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+}
+.client-account-danger {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+}

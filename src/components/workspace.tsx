@@ -14,7 +14,6 @@ import AppShell, { Brand, type Section } from "@/components/app-shell";
 import {
   Badge,
   Card,
-  DataTable,
   EmptyState,
   LoadingSkeleton,
   Notice,
@@ -24,6 +23,7 @@ import {
 import { getSupabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import FinancialWorkspace from "@/components/financial-workspace";
+import ClientDirectory from "@/components/client-directory";
 import ImportReview from "@/components/import-review";
 
 type Client = {
@@ -57,7 +57,6 @@ export default function Workspace() {
   const [clients, setClients] = useState<Client[]>([]);
   const [search, setSearch] = useState("");
   const [section, setSection] = useState<Section>("dashboard");
-  const [clientFocus, setClientFocus] = useState<Client | null>(null);
   const [memberFilter, setMemberFilter] = useState("todos");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
@@ -78,7 +77,6 @@ export default function Workspace() {
         setShowForm(false);
         setEditing(null);
         setSearch("");
-        setClientFocus(null);
         setMemberFilter("todos");
         setSection("dashboard");
       }
@@ -225,7 +223,6 @@ export default function Workspace() {
   );
   function navigate(next: Section) {
     setSection(next);
-    setClientFocus(null);
   }
   const notice = message && (
     <Notice error={message !== "Cliente guardado."}>{message}</Notice>
@@ -411,25 +408,6 @@ export default function Workspace() {
         </div>
       ) : section !== "clientes" ? (
         <>
-          {clientFocus && (
-            <Card>
-              <SectionHeading
-                title={clientFocus.full_name}
-                description={`Stand ${clientFocus.stand_code ?? "por registrar"} · ${clientFocus.member_type ?? "condición por registrar"} · DNI ${clientFocus.dni}`}
-                action={
-                  <Button
-                    variant="outline"
-                    onClick={() => navigate("clientes")}
-                  >
-                    Volver a clientes
-                  </Button>
-                }
-              />
-              <p className="text-sm text-slate-500">
-                {clientFocus.phone} · {clientFocus.address}
-              </p>
-            </Card>
-          )}
           <FinancialWorkspace
             clients={clients}
             role={role}
@@ -440,7 +418,6 @@ export default function Workspace() {
                   ? "general"
                   : section
             }
-            clientFocus={clientFocus?.id}
             search={search}
             onSearchChange={setSearch}
           />
@@ -500,65 +477,13 @@ export default function Workspace() {
             {visible.length} {visible.length === 1 ? "cliente" : "clientes"}{" "}
             encontrados
           </p>
-          <DataTable
-            caption="Clientes registrados"
-            headers={[
-              "Cliente",
-              "Stand",
-              "Condición",
-              "DNI",
-              "Celular",
-              "Dirección",
-              "Registro",
-              "Acción",
-            ]}
-            keys={visible.map((c) => c.id)}
-            rows={visible.map((client) => [
-              <span key="name" className="font-semibold text-slate-900">
-                {client.full_name}
-              </span>,
-              client.stand_code ?? "Por registrar",
-              <Badge
-                key="type"
-                tone={client.member_type === "socio" ? "info" : "neutral"}
-              >
-                {client.member_type ?? "Por registrar"}
-              </Badge>,
-              client.dni,
-              client.phone,
-              client.address,
-              new Intl.DateTimeFormat("es-PE", {
-                timeZone: "America/Lima",
-              }).format(new Date(client.created_at)),
-              <div key="actions" className="flex flex-wrap justify-end gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setClientFocus(client);
-                    setSection("general");
-                  }}
-                >
-                  Ver detalle
-                </Button>
-                {role === "administrador" && (
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setEditing(client);
-                      setShowForm(true);
-                    }}
-                  >
-                    Editar
-                  </Button>
-                )}
-              </div>,
-            ])}
-            emptyTitle={
-              search
-                ? "No se encontraron clientes"
-                : "Todavía no hay clientes registrados"
-            }
-            emptyDescription="Registra tu primer cliente o ajusta la búsqueda para continuar."
+          <ClientDirectory
+            clients={visible}
+            role={role}
+            onEdit={(client) => {
+              setEditing(client);
+              setShowForm(true);
+            }}
           />
           <Sheet
             open={showForm && role === "administrador"}

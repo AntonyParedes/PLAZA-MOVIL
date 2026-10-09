@@ -79,3 +79,7 @@ Navegación por módulos, Dashboard de cobros, menú plegable en escritorio, men
 Desde Cobros semanales o el detalle del préstamo se puede ingresar un importe libre, completar 1/2/3 cuotas pendientes con accesos rápidos o liquidar capital + interés pendiente. Los botones preparan el importe; «Confirmar pago» conserva la confirmación y la operación financiera existentes. Las cuotas se completan desde la más antigua, contemplando abonos parciales.
 
 Este rediseño no necesita migraciones nuevas ni cambios en las variables de entorno. Un proyecto existente debe tener las migraciones 001, 002 y 003 aplicadas. Publicar el nuevo commit mediante el despliegue habitual de Vercel.
+
+## Clientes: cuenta desplegable
+
+Clientes muestra nombre, condición, stand y WhatsApp; pulsar el nombre abre los detalles en la misma página. La cuenta tiene color según su estado y muestra Saldo e Interés cobrado (ganancia), sumado de sus pagos reales. Debajo están préstamos, cronogramas, historial y contacto. La edición sigue limitada al administrador. WhatsApp prepara un resumen de deuda y atraso para enviar manualmente, con advertencia general y firma de Gerencia. Esta actualización no requiere SQL adicional.

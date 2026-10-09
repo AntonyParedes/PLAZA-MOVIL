@@ -606,44 +606,99 @@ test("pago confirmado mantiene el RPC, muestra éxito y bloquea refinanciación 
   expect(calls[1].body.p_loan).toBe("loan-3");
   await expect(sheet.getByText(/Refinanciación registrada/)).toBeVisible();
 });
-test("detalle de cliente filtra su deuda, cronograma y conserva el foco al cerrar", async ({
+test("cliente limpio despliega deuda e interés cobrado en la misma página, con WhatsApp y edición", async ({
   page,
 }) => {
   await mockSupabase(page, "administrador", await dashboardFixtures());
   await login(page);
   await navigateModule(page, "Clientes");
-  const ana = page.getByRole("row").filter({ hasText: "Ana Socia" });
-  await ana.getByRole("button", { name: "Ver detalle", exact: true }).click();
+  const ana = page.getByRole("article", { name: "Ana Socia", exact: true });
+  await expect(ana).toContainText("S-01");
+  await expect(ana).not.toContainText("12345670");
+  await expect(ana.getByRole("region")).toHaveCount(0);
   await expect(
-    page.getByRole("row").filter({ hasText: "Luis Trabajador" }),
-  ).toHaveCount(0);
-  const open = page
-    .getByRole("row")
-    .filter({ hasText: "Ana Socia" })
-    .getByRole("button", { name: "Abrir", exact: true });
-  await open.click();
-  await expect(
-    page
-      .getByRole("dialog")
-      .getByRole("heading", { name: "Historial de periodos y cuotas" }),
+    ana.getByRole("link", { name: "WhatsApp de Ana Socia" }),
   ).toBeVisible();
+  await ana.getByRole("button", { name: /^Ana Socia/ }).click();
+  const region = ana.getByRole("region", { name: "Cuenta de Ana Socia" });
+  await expect(region).toContainText("S/ 870.00");
+  await expect(region).toContainText("12345670");
+  await expect(region).toContainText("Interés cobrado (ganancia)");
+  await region.getByText("Ver cuotas e historial", { exact: true }).click();
+  await expect(region).toContainText("Periodo 1 · Cuota 1");
+  await expect(
+    page.getByRole("heading", { name: "Clientes", exact: true, level: 1 }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("article", { name: "Luis Trabajador", exact: true }),
+  ).toBeVisible();
+  const maria = page.getByRole("article", {
+    name: "Maria Liquidada",
+    exact: true,
+  });
+  await maria.getByRole("button", { name: /^Maria Liquidada/ }).click();
+  await expect(region).toHaveCount(0);
+  await expect(maria.getByRole("region")).toContainText("Liquidado");
+  await expect(maria.getByRole("region").locator("dl").first()).toContainText(
+    "S/ 60.00",
+  );
+  await expect(
+    maria.getByRole("region").locator("dl").first(),
+  ).not.toContainText("S/ 1,060.00");
+  const luis = page.getByRole("article", {
+    name: "Luis Trabajador",
+    exact: true,
+  });
+  await luis.getByRole("button", { name: /^Luis Trabajador/ }).click();
+  await expect(luis.getByRole("region")).toHaveClass(/client-account-danger/);
+  const href = await luis
+    .getByRole("link", { name: "WhatsApp de Luis Trabajador" })
+    .getAttribute("href");
+  const message = new URL(href!).searchParams.get("text")!;
+  expect(message).toContain("Estado: En mora");
+  expect(message).toContain("Días de atraso de la cuota: 7");
+  expect(message).toContain("penalidades según las condiciones");
+  expect(message).toContain("La Gerencia");
+  await ana.getByRole("button", { name: /^Ana Socia/ }).click();
+  const edit = ana.getByRole("button", { name: "Editar", exact: true });
+  await edit.click();
+  await expect(
+    page.getByRole("dialog").getByLabel("Código de stand"),
+  ).toHaveValue("S-01");
   await page.keyboard.press("Escape");
-  await expect(open).toBeFocused();
-  await page
-    .getByRole("button", { name: "Volver a clientes", exact: true })
-    .click();
-  await page
-    .getByRole("row")
-    .filter({ hasText: "Ana Socia" })
-    .getByRole("button", { name: "Editar", exact: true })
-    .click();
-  const sheet = page.getByRole("dialog");
-  await expect(sheet.getByLabel("Código de stand")).toHaveValue("S-01");
-  await page.keyboard.press("Tab");
-  await expect(page.getByRole("dialog")).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(sheet).toHaveCount(0);
+  await expect(edit).toBeFocused();
+  await ana.getByRole("button", { name: /^Ana Socia/ }).click();
+  await expect(ana.getByRole("region")).toHaveCount(0);
 });
+
+for (const dark of [false, true])
+  test(`clientes desplegados sin desbordamiento a 375px, noche ${dark}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.emulateMedia({ colorScheme: dark ? "dark" : "light" });
+    await mockSupabase(page, "jefe", await dashboardFixtures());
+    await login(page);
+    await navigateModule(page, "Clientes");
+    const luis = page.getByRole("article", {
+      name: "Luis Trabajador",
+      exact: true,
+    });
+    await luis.getByRole("button", { name: /^Luis Trabajador/ }).click();
+    await expect(luis.getByRole("region")).toHaveClass(/client-account-danger/);
+    await expect(
+      luis.getByRole("button", { name: "Editar", exact: true }),
+    ).toHaveCount(0);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > innerWidth,
+      ),
+    ).toBe(false);
+    await page.screenshot({
+      path: `test-results/clients-375-${dark ? "dark" : "light"}.png`,
+      fullPage: true,
+    });
+  });
 
 test("formulario de cliente registra stand y condición con confirmación y feedback", async ({
   page,
@@ -682,7 +737,7 @@ test("formulario de cliente registra stand y condición con confirmación y feed
     page.getByText("Cliente guardado.", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("row").filter({ hasText: "Elena Trabajadora" }),
+    page.getByRole("article", { name: "Elena Trabajadora", exact: true }),
   ).toContainText("B-02");
 });
 
