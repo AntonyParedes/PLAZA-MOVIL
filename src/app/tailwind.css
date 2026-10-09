@@ -2,5 +2,35 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-blue-50: var(--brand-soft);
+  --color-blue-100: var(--brand-border);
+  --color-blue-200: #c0efc5;
+  --color-blue-300: #a5dfac;
+  --color-blue-400: #78c980;
+  --color-blue-600: var(--primary);
+  --color-blue-700: #267532;
+  --color-emerald-50: var(--success-bg);
+  --color-emerald-200: var(--success-border);
+  --color-emerald-700: var(--success-text);
+  --color-emerald-800: var(--success-text);
+  --color-amber-50: var(--warning-bg);
+  --color-amber-200: var(--warning-border);
+  --color-amber-700: var(--warning-text);
+  --color-amber-800: var(--warning-text);
+  --color-red-50: var(--danger-bg);
+  --color-red-200: var(--danger-border);
+  --color-red-600: var(--danger-text);
+  --color-red-700: var(--danger-text);
+  --color-red-800: var(--danger-text);
+  --color-slate-50: var(--neutral-50);
+  --color-slate-100: var(--neutral-100);
+  --color-slate-200: var(--neutral-200);
+  --color-slate-300: var(--neutral-300);
+  --color-slate-400: var(--neutral-400);
+  --color-slate-500: var(--neutral-500);
+  --color-slate-600: var(--neutral-600);
+  --color-slate-700: var(--neutral-700);
+  --color-slate-800: var(--neutral-800);
+  --color-slate-900: var(--neutral-900);
   --font-sans: var(--font-geist), Arial, sans-serif;
 }

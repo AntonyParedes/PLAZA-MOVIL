@@ -242,7 +242,7 @@ export default function Workspace() {
   if (!userId || !role || !supabase)
     return (
       <div className="min-h-screen lg:grid lg:grid-cols-2">
-        <aside className="flex flex-col justify-between bg-[var(--navy)] p-7 text-white sm:p-12 lg:p-16">
+        <aside className="app-navigation flex flex-col justify-between bg-[var(--navy)] p-7 text-white sm:p-12 lg:p-16">
           <Brand />
           <div className="py-10 lg:py-20">
             <Badge tone="info">Plaza Móvil</Badge>
@@ -370,6 +370,7 @@ export default function Workspace() {
             />
             <dl className="space-y-5 text-sm">
               {[
+                ["Apariencia", "Automática · según el dispositivo"],
                 ["Moneda", "Sol peruano (PEN)"],
                 ["Zona horaria", "América / Lima"],
                 ["Idioma", "Español"],

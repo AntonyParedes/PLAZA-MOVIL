@@ -6,7 +6,7 @@ El rediseño reutiliza Next.js, React, Tailwind, Radix y Lucide. No cambia las m
 
 La interfaz anterior reunía las tareas financieras en pestañas de una sola pantalla, mostraba el acceso como página principal y dependía de tablas extensas en móviles. El diseño actual permite entrar directamente a cada tarea desde el menú; el Dashboard es la primera vista después de iniciar sesión. El panel general y la revisión de Excel siguen disponibles.
 
-La navegación utiliza azul marino, acciones azules, tarjetas blancas sobre fondo gris claro y tipografía Geist local con licencia OFL. El archivo local evita descargas de fuentes durante la compilación. Pagado/liquidado se muestran en verde, pendiente/atrasado en ámbar y vencido/mora en rojo; los estados siempre incluyen texto.
+La interfaz utiliza verde #4EB852, morado #9763A8 y gris #A9ABAE, con blanco y negro según el contraste. Las acciones principales son verdes, los acentos morados y la navegación violeta oscuro. Usa tipografía Geist local con licencia OFL. El archivo local evita descargas de fuentes durante la compilación. Pagado/liquidado se muestran en verde, pendiente/atrasado en ámbar y vencido/mora en rojo; los estados siempre incluyen texto.
 
 `src/components/app-shell.tsx` centraliza navegación, encabezado, búsqueda compartida y menú de usuario. En escritorio se puede plegar el menú. En tablet y móvil se utiliza un diálogo de navegación con foco controlado y cierre con Escape.
 
@@ -25,6 +25,18 @@ La navegación utiliza azul marino, acciones azules, tarjetas blancas sobre fond
 - **Configuración:** muestra moneda, idioma, zona horaria y alcance del rol actual. Es informativa; los roles continúan gestionándose por el responsable del sistema.
 - **Revisar Excel:** conserva la revisión local y sus advertencias; no realiza importación a la base de datos.
 
+## Apariencia automática
+
+El modo noche sigue `prefers-color-scheme` del dispositivo y cambia mientras la aplicación está abierta si cambia esa preferencia. Los fondos, tarjetas, tablas, formularios, textos, bordes y estados adaptan su contraste; los controles nativos también reciben `color-scheme`. Configuración indica «Automática · según el dispositivo».
+
+## Exportación completa a Excel
+
+«Exportar Excel completo» descarga un archivo `.xlsx` real. La hoja Cartera incluye condición, número de referencia del préstamo, código stand, fecha, celular, apellidos y nombres, DNI, monto prestado, interés inicial, total a cobrar, cuota semanal, columnas de cuotas, Saldo, estado, número de cuotas, día de pago, días de atraso y refinanciación. El número de referencia es una posición ordenada por fecha e ID, no un identificador persistido; también se exporta el ID del préstamo.
+
+El libro tiene nueve hojas: Cartera, Cuotas, Pagos, Periodos, Refinanciaciones, Clientes, Cobros por semana, Cobros por mes y Guía. Los filtros seleccionan préstamos, pero se conserva su historial completo para conciliar saldos. Las columnas CUOTA muestran el importe abonado a cada cuota del periodo vigente, con un mínimo de ocho columnas; las cuotas anteriores quedan en Cuotas. El total a cobrar suma capital original e intereses de todos los periodos sin duplicar capital refinanciado.
+
+Fechas y montos utilizan formatos de Excel; DNI, stand y celular se guardan como texto para conservar ceros. Los montos que exceden la precisión de Excel se conservan como texto decimal exacto. Guía explica estas reglas y los colores. Reportes permite descargar Excel y conserva los CSV existentes.
+
 ## Recepción de cobros
 
 El detalle del préstamo permite escribir un monto libre, completar 1, 2 o 3 cuotas pendientes o liquidar todo el préstamo. Los accesos rápidos suman los importes restantes de las cuotas vigentes más antiguas; contemplan abonos parciales. Se deshabilita una opción si no hay suficientes cuotas pendientes. Liquidar utiliza capital pendiente + interés pendiente, sin descuentos.
@@ -33,7 +45,7 @@ Todos los botones solo preparan el monto: después se revisa la fecha y se pulsa
 
 ## Validación y actualización
 
-Las pruebas Playwright verifican el acceso por rol, persistencia de sesión al volver a la pestaña, formularios, productos, confirmaciones, RPC de pagos/refinanciación, exportaciones y revisión XLSX. También recorren los módulos y detalles a 375, 430, 768, 1024, 1440 y 1920 px, comprobando que la página no tenga desbordamiento horizontal. Incluyen pagos de varias cuotas con un abono parcial previo y liquidación completa. Se generan capturas locales en `test-results/`, ignoradas por Git.
+Las pruebas Playwright verifican el acceso por rol, persistencia de sesión al volver a la pestaña, formularios, productos, confirmaciones, RPC de pagos/refinanciación, exportaciones y revisión XLSX. También recorren los módulos y detalles a 375, 430, 768, 1024, 1440 y 1920 px, comprobando que la página no tenga desbordamiento horizontal. Incluyen pagos de varias cuotas con un abono parcial previo, liquidación completa, descarga y lectura de XLSX con filtros y cambios de apariencia clara/oscura a 375 y 1440 px. Se generan capturas locales en `test-results/`, ignoradas por Git.
 
 Las respuestas Supabase de estas pruebas están interceptadas; la suite PGlite comprueba las operaciones SQL localmente. Esto no acredita la integración ni la concurrencia en el proyecto Supabase de producción.
 

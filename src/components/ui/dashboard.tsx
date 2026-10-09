@@ -172,7 +172,7 @@ export function Kpi({
   value: ReactNode;
   note: string;
   icon: ComponentType<{ size?: number; className?: string }>;
-  tone?: "blue" | "green" | "red" | "amber";
+  tone?: "blue" | "green" | "red" | "amber" | "purple";
 }) {
   return (
     <article className="surface p-5">
@@ -183,6 +183,7 @@ export function Kpi({
             "rounded-xl p-2.5",
             {
               blue: "bg-blue-50 text-blue-600",
+              purple: "bg-[var(--accent-soft)] text-[var(--accent-text)]",
               green: "bg-emerald-50 text-emerald-700",
               red: "bg-red-50 text-red-600",
               amber: "bg-amber-50 text-amber-700",

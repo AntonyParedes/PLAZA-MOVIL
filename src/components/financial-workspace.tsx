@@ -21,6 +21,7 @@ import {
   type Installment,
 } from "@/lib/portal";
 import { collectionStatus, weekdayLabel } from "@/lib/collection-status";
+import { downloadCreditWorkbook } from "@/lib/credit-export";
 import { whatsappReminder } from "@/lib/whatsapp-reminder";
 import { Button } from "@/components/ui/button";
 import {
@@ -84,6 +85,7 @@ export default function FinancialWorkspace({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [revision, setRevision] = useState(0);
   const tab = view;
   const [success, setSuccess] = useState("");
@@ -557,6 +559,44 @@ export default function FinancialWorkspace({
       ]),
     ]);
   }
+  async function exportExcel(kind = "todos") {
+    if (exporting) return;
+    setExporting(true);
+    setError("");
+    try {
+      let selectedIds = loans
+        .filter((l) => kind === "todos" || l.status === kind)
+        .map((l) => l.id);
+      if (kind === "general")
+        selectedIds = generalEntries.map((e) => e.loan.id);
+      if (kind === "cobranzas")
+        selectedIds = collectionRows.map((i) => i.loan_id);
+      if (kind === "pagos") selectedIds = payments.map((p) => p.loan_id);
+      if (kind === "vencidos")
+        selectedIds = installments
+          .filter((i) => i.due_date < today && within(i.due_date))
+          .map((i) => i.loan_id);
+      if (kind === "refinanciaciones")
+        selectedIds = refinanced.map((p) => p.loan_id);
+      await downloadCreditWorkbook(
+        {
+          clients,
+          ...data,
+          today,
+          selectedLoanIds: [...new Set(selectedIds)],
+          description: `Selección: ${kind}. Búsqueda: ${search || "todos"}. Desde: ${from || "sin límite"}. Hasta: ${to || "sin límite"}. Incluye el historial completo de los préstamos seleccionados.`,
+        },
+        `pm-creditos-${kind}.xlsx`,
+      );
+      setSuccess(
+        "Excel descargado. Incluye cartera, cuotas, pagos y refinanciaciones.",
+      );
+    } catch {
+      setError("No se pudo generar el Excel. Inténtalo nuevamente.");
+    } finally {
+      setExporting(false);
+    }
+  }
   if (loading && revision === 0) return <LoadingSkeleton />;
   return (
     <section className="space-y-6" aria-busy={loading}>
@@ -588,13 +628,30 @@ export default function FinancialWorkspace({
               : "Consulta, filtra y encuentra la información que necesitas."}
           </p>
         </div>
-        <Button
-          variant="outline"
-          onClick={() => setRevision((r) => r + 1)}
-          disabled={busy}
-        >
-          <RefreshCw size={16} /> Actualizar
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            disabled={exporting || loading}
+            onClick={() =>
+              exportExcel(
+                tab === "general"
+                  ? "general"
+                  : tab === "cobranzas"
+                    ? "cobranzas"
+                    : "todos",
+              )
+            }
+          >
+            <Download size={16} />
+            {exporting ? "Generando Excel…" : "Exportar Excel completo"}
+          </Button>{" "}
+          <Button
+            variant="outline"
+            onClick={() => setRevision((r) => r + 1)}
+            disabled={busy}
+          >
+            <RefreshCw size={16} /> Actualizar
+          </Button>
+        </div>
       </div>
       <Card className="!p-4">
         <div className="grid items-end gap-4 sm:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_180px_180px]">
@@ -746,6 +803,7 @@ export default function FinancialWorkspace({
               label="Capital pendiente"
               value={money(totals.capital)}
               note="Capital por recuperar"
+              tone="purple"
               icon={CircleDollarSign}
             />
             <Kpi
@@ -1262,10 +1320,20 @@ export default function FinancialWorkspace({
                 <p className="mb-5 mt-2 text-sm leading-6 text-slate-500">
                   {description}
                 </p>
-                <Button variant="outline" onClick={() => exportReport(kind)}>
-                  <Download size={16} />
-                  {label} CSV
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  {" "}
+                  <Button
+                    disabled={exporting || loading}
+                    onClick={() => exportExcel(kind)}
+                  >
+                    <Download size={16} />
+                    {label} Excel
+                  </Button>
+                  <Button variant="outline" onClick={() => exportReport(kind)}>
+                    <Download size={16} />
+                    {label} CSV
+                  </Button>
+                </div>
               </Card>
             ))}
           </div>

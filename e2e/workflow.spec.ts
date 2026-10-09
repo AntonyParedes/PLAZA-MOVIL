@@ -778,3 +778,91 @@ test("recordatorio WhatsApp prepara estado, días de mora, advertencia y firma s
   expect(text).toContain("Atentamente,\nLa Gerencia\nPM Créditos");
   expect(calls).toHaveLength(0);
 });
+
+for (const width of [375, 1440])
+  test(`modo noche automático, paleta y formularios legibles a ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await mockSupabase(page, "administrador", await dashboardFixtures());
+    await login(page);
+    expect(
+      await page.evaluate(
+        () => getComputedStyle(document.body).backgroundColor,
+      ),
+    ).toBe("rgb(20, 17, 23)");
+    const card = page.locator("article.surface").first();
+    expect(
+      await card.evaluate((el) => getComputedStyle(el).backgroundColor),
+    ).toBe("rgb(33, 28, 38)");
+    const exporter = page.getByRole("button", {
+      name: "Exportar Excel completo",
+      exact: true,
+    });
+    expect(
+      await exporter.evaluate((el) => getComputedStyle(el).backgroundColor),
+    ).toBe("rgb(78, 184, 82)");
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > innerWidth,
+      ),
+    ).toBe(false);
+    await page.screenshot({
+      path: `test-results/night-${width}.png`,
+      fullPage: true,
+    });
+    await navigateModule(page, "Clientes");
+    await page
+      .getByRole("button", { name: "Nuevo cliente", exact: true })
+      .click();
+    const field = page.getByRole("dialog").getByLabel("Código de stand");
+    expect(
+      await field.evaluate((el) => getComputedStyle(el).backgroundColor),
+    ).toBe("rgb(33, 28, 38)");
+    await page.keyboard.press("Escape");
+    await navigateModule(page, "Configuración");
+    await expect(
+      page.getByText("Automática · según el dispositivo", { exact: true }),
+    ).toBeVisible();
+    await page.emulateMedia({ colorScheme: "light" });
+    expect(
+      await page.evaluate(
+        () => getComputedStyle(document.body).backgroundColor,
+      ),
+    ).toBe("rgb(247, 246, 249)");
+  });
+test("Excel completo se descarga, abre como XLSX y conserva datos, cuotas y pagos", async ({
+  page,
+}) => {
+  await mockSupabase(page, "administrador", await dashboardFixtures());
+  await login(page);
+  await navigateModule(page, "Panel general");
+  const downloadPromise = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Exportar Excel completo", exact: true })
+    .click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe("pm-creditos-general.xlsx");
+  const { default: ExcelJS } = await import("exceljs");
+  const book = new ExcelJS.Workbook();
+  await book.xlsx.readFile((await download.path())!);
+  expect(book.getWorksheet("Cartera")!.rowCount).toBe(5);
+  expect(book.getWorksheet("Cartera")!.getCell("F2").value).toBe("Ana Socia");
+  expect(book.getWorksheet("Pagos")!.rowCount).toBe(2);
+  expect(book.getWorksheet("Cuotas")!.rowCount).toBe(5);
+  await page
+    .getByRole("combobox", { name: "Filtrar condición" })
+    .selectOption("trabajador");
+  const filteredPromise = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Exportar Excel completo", exact: true })
+    .click();
+  const filtered = await filteredPromise;
+  const other = new ExcelJS.Workbook();
+  await other.xlsx.readFile((await filtered.path())!);
+  expect(other.getWorksheet("Cartera")!.rowCount).toBe(2);
+  expect(other.getWorksheet("Cartera")!.getCell("F2").value).toBe(
+    "Luis Trabajador",
+  );
+});

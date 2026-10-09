@@ -51,7 +51,7 @@ const navigation = [
 export function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-3">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-[#102b18]">
         <Landmark size={22} aria-hidden="true" />
       </span>
       {!compact && (
@@ -153,7 +153,7 @@ export default function AppShell({
       </a>
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-30 hidden flex-col overflow-y-auto bg-[var(--navy)] text-white transition-[width] lg:flex",
+          "app-navigation fixed inset-y-0 left-0 z-30 hidden flex-col overflow-y-auto bg-[var(--navy)] text-white transition-[width] lg:flex",
           collapsed ? "w-20" : "w-64",
         )}
       >
@@ -194,7 +194,7 @@ export default function AppShell({
               </Dialog.Trigger>
               <Dialog.Portal>
                 <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-950/45 lg:hidden" />
-                <Dialog.Content className="fixed inset-y-0 left-0 z-50 flex w-[min(296px,85vw)] flex-col overflow-y-auto bg-[var(--navy)] text-white lg:hidden">
+                <Dialog.Content className="app-navigation fixed inset-y-0 left-0 z-50 flex w-[min(296px,85vw)] flex-col overflow-y-auto bg-[var(--navy)] text-white lg:hidden">
                   <Dialog.Title className="sr-only">Navegación</Dialog.Title>
                   <Dialog.Description className="sr-only">
                     Selecciona un módulo de PM Créditos.
