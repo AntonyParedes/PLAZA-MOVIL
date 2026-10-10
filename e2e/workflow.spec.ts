@@ -1205,6 +1205,7 @@ for (const width of [375, 1440]) {
     await expect(page.getByRole("searchbox")).toHaveValue("");
     await page.screenshot({ path: `test-results/navigation-after-${width}.png`, fullPage: true });
     await page.getByRole("button", { name: "Activar modo noche" }).click();
+    await expect.poll(() => page.getByRole("button", { name: "Actualizar", exact: true }).evaluate(element => getComputedStyle(element).backgroundColor)).toBe("rgb(33, 28, 38)");
     await page.screenshot({ path: `test-results/navigation-after-dark-${width}.png`, fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
   });
