@@ -24,6 +24,7 @@ import { getSupabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import FinancialWorkspace from "@/components/financial-workspace";
 import ClientDirectory from "@/components/client-directory";
+import { ThemeToggle, ThemePreference } from "@/components/theme-toggle";
 import ImportReview from "@/components/import-review";
 
 type Client = {
@@ -277,6 +278,9 @@ export default function Workspace() {
         </aside>
         <main className="flex items-center justify-center p-6 sm:p-12">
           <div className="w-full max-w-md space-y-6">
+            <div className="flex justify-end">
+              <ThemeToggle />
+            </div>
             {notice}
             {!supabase ? (
               <Card>
@@ -365,9 +369,11 @@ export default function Workspace() {
               title="Tu espacio de trabajo"
               description="Preferencias de operación de PM Créditos."
             />
+            <div className="mb-5">
+              <ThemePreference />
+            </div>
             <dl className="space-y-5 text-sm">
               {[
-                ["Apariencia", "Automática · según el dispositivo"],
                 ["Moneda", "Sol peruano (PEN)"],
                 ["Zona horaria", "América / Lima"],
                 ["Idioma", "Español"],

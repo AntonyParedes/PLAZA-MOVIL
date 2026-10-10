@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/dashboard";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
 export type Section =
   | "dashboard"
@@ -214,7 +215,7 @@ export default function AppShell({
               </h1>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-4">
+          <div className="flex shrink-0 items-center gap-2 sm:gap-4">
             {!["configuracion", "importar"].includes(section) && (
               <div className="relative hidden w-56 lg:block">
                 <Search
@@ -239,6 +240,7 @@ export default function AppShell({
                 year: "numeric",
               }).format(new Date())}
             </span>
+            <ThemeToggle />
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild>
                 <button

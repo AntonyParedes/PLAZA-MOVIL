@@ -18,7 +18,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="es" className={geist.variable}>
+    <html lang="es" className={geist.variable} suppressHydrationWarning>
+      <head>
+        <script
+          id="pm-theme-init"
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{var t=localStorage.getItem('pm-creditos-theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t;}catch(e){}",
+          }}
+        />
+      </head>
       <body>{children}</body>
     </html>
   );

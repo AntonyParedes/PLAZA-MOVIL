@@ -4,7 +4,7 @@ Base de desarrollo de una aplicación de préstamos personales en PEN y zona Ame
 
 ## Estado real
 
-Implementados: acceso por correo/contraseña, roles, consulta/alta/edición de clientes, panel financiero, préstamos, cronogramas, pagos parciales y totales, refinanciaciones, historial, alertas, WhatsApp manual, reportes XLSX completos y CSV, y apariencia automática clara/oscura. Productos disponibles: S/500 al 7 % mensual por un mes; S/1.000 al 6 % mensual por uno o dos meses y S/2.000 al 6 % mensual por dos meses (intereses S/35, S/60, S/120 y S/240, respectivamente). Las operaciones financieras utilizan RPC SQL transaccionales, bloqueos e idempotencia; pagos definitivos sin anulación ni eliminación, según decisión del usuario.
+Implementados: acceso por correo/contraseña, roles, consulta/alta/edición de clientes, panel financiero, préstamos, cronogramas, pagos parciales y totales, refinanciaciones, historial, alertas, WhatsApp manual, reportes XLSX completos y CSV, y apariencia día/noche manual o automática. Productos disponibles: S/500 al 7 % mensual por un mes; S/1.000 al 6 % mensual por uno o dos meses y S/2.000 al 6 % mensual por dos meses (intereses S/35, S/60, S/120 y S/240, respectivamente). Las operaciones financieras utilizan RPC SQL transaccionales, bloqueos e idempotencia; pagos definitivos sin anulación ni eliminación, según decisión del usuario.
 
 **Sin proyecto Supabase conectado: autenticación, persistencia y permisos aún no se han validado contra el servicio real.** Hay pruebas en PostgreSQL local con Auth simulado.
 
@@ -100,3 +100,5 @@ S/2.000 al 6 % mensual durante dos meses (ocho semanas): interés S/240, total S
 Panel general marca en morado «Vence hoy» para cuotas vigentes con saldo pendiente que vencen exactamente hoy en Lima, sin agregar columnas ni cambiar el estado de cobranza. Las cuotas pagadas no se resaltan.
 
 El menú omite Cobros semanales e Historial de pagos. El registro y la consulta de pagos están en el detalle del préstamo, accesible desde Panel general o Préstamos; la agenda sigue en Dashboard y las exportaciones en Reportes. Estos cambios de interfaz no requieren SQL adicional.
+
+El botón luna/sol de la barra superior y del acceso alterna modo día y noche con fondos suaves. La elección se conserva en este navegador. Configuración permite volver a seguir el dispositivo. No requiere SQL adicional.

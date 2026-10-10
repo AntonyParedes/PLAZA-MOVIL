@@ -23,9 +23,9 @@ La interfaz utiliza verde #4EB852, morado #9763A8 y gris #A9ABAE, con blanco y n
 - **Configuración:** muestra moneda, idioma, zona horaria y alcance del rol actual. Es informativa; los roles continúan gestionándose por el responsable del sistema.
 - **Revisar Excel:** conserva la revisión local y sus advertencias; no realiza importación a la base de datos.
 
-## Apariencia automática
+## Apariencia día y noche
 
-El modo noche sigue `prefers-color-scheme` del dispositivo y cambia mientras la aplicación está abierta si cambia esa preferencia. Los fondos, tarjetas, tablas, formularios, textos, bordes y estados adaptan su contraste; los controles nativos también reciben `color-scheme`. Configuración indica «Automática · según el dispositivo».
+El botón con luna/sol en la barra superior y en el acceso alterna entre modo día y noche. La elección manual se guarda en este navegador y prevalece sobre el dispositivo al recargar. Sin elección guardada, el modo sigue `prefers-color-scheme` y cambia con el dispositivo. Configuración permite volver a «Usar configuración del dispositivo». Los fondos, tarjetas, tablas, formularios, textos, bordes y estados adaptan su contraste; los controles nativos también reciben `color-scheme`. Configuración indica la elección actual o «Automática · según el dispositivo». El modo día utiliza tarjetas blanco roto (#FCFBFD); el nocturno usa fondos violeta oscuro sin negro puro. La elección se aplica antes de mostrar la página; los controles siguen funcionando si el navegador impide guardar preferencias.
 
 ## Exportación completa a Excel
 

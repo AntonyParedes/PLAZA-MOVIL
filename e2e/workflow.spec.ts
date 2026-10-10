@@ -1085,3 +1085,101 @@ for (const width of [375, 1440])
       fullPage: true,
     });
   });
+
+for (const width of [375, 1440])
+  test(`botón día y noche conserva preferencia y permite volver al dispositivo a ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ colorScheme: "dark" });
+    await mockSupabase(page, "administrador", await dashboardFixtures());
+    await login(page);
+    const color = () =>
+      page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    await expect(
+      page.getByRole("button", { name: "Activar modo día", exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Activar modo día", exact: true })
+      .click();
+    expect(await color()).toBe("rgb(247, 246, 249)");
+    expect(
+      await page.evaluate(() => localStorage.getItem("pm-creditos-theme")),
+    ).toBe("light");
+    await page.reload();
+    await expect(
+      page.getByRole("button", { name: "Activar modo noche", exact: true }),
+    ).toBeVisible();
+    expect(await color()).toBe("rgb(247, 246, 249)");
+    await page
+      .getByRole("button", { name: "Activar modo noche", exact: true })
+      .click();
+    expect(await color()).toBe("rgb(20, 17, 23)");
+    await page.emulateMedia({ colorScheme: "light" });
+    expect(await color()).toBe("rgb(20, 17, 23)");
+    await navigateModule(page, "Clientes");
+    await page
+      .getByRole("button", { name: "Nuevo cliente", exact: true })
+      .click();
+    expect(
+      await page
+        .getByRole("dialog")
+        .getByLabel("Código de stand")
+        .evaluate((el) => getComputedStyle(el).backgroundColor),
+    ).toBe("rgb(33, 28, 38)");
+    await page.keyboard.press("Escape");
+    await navigateModule(page, "Configuración");
+    await expect(page.getByText("Modo noche", { exact: true })).toBeVisible();
+    await page
+      .getByRole("button", {
+        name: "Usar configuración del dispositivo",
+        exact: true,
+      })
+      .click();
+    await expect(
+      page.getByText("Automática · según el dispositivo", { exact: true }),
+    ).toBeVisible();
+    expect(await color()).toBe("rgb(247, 246, 249)");
+    expect(
+      await page.evaluate(() => localStorage.getItem("pm-creditos-theme")),
+    ).toBeNull();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > innerWidth,
+      ),
+    ).toBe(false);
+    await page
+      .getByRole("button", { name: "Activar modo noche", exact: true })
+      .click();
+    await page.screenshot({
+      path: `test-results/theme-toggle-${width}.png`,
+      fullPage: true,
+    });
+  });
+
+test("el botón de apariencia también funciona al ingresar, con almacenamiento bloqueado", async ({
+  page,
+}) => {
+  await mockSupabase(page, "administrador");
+  await page.addInitScript(() => {
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (key === "pm-creditos-theme")
+        throw new DOMException("Storage blocked", "SecurityError");
+      Object.defineProperty(this, key, { value, configurable: true });
+    };
+  });
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Activar modo noche", exact: true })
+    .click();
+  expect(
+    await page.evaluate(() => getComputedStyle(document.body).backgroundColor),
+  ).toBe("rgb(20, 17, 23)");
+  await page
+    .getByRole("button", { name: "Activar modo día", exact: true })
+    .click();
+  expect(
+    await page.evaluate(() => getComputedStyle(document.body).backgroundColor),
+  ).toBe("rgb(247, 246, 249)");
+});
