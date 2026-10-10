@@ -539,13 +539,22 @@ for (const width of [375, 430, 768, 1024, 1440, 1920])
         .getByRole("button", { name: "Expandir menú", exact: true })
         .click();
     }
+    if (width < 1024)
+      await page
+        .getByRole("button", { name: "Abrir menú", exact: true })
+        .click();
+    await expect(
+      page.getByRole("button", { name: "Cobros semanales", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Historial de pagos", exact: true }),
+    ).toHaveCount(0);
+    if (width < 1024) await page.keyboard.press("Escape");
     for (const name of [
       "Panel general",
       "Clientes",
       "Préstamos",
-      "Cobros semanales",
       "Refinanciaciones",
-      "Historial de pagos",
       "Reportes",
       "Configuración",
       "Revisar Excel",
@@ -655,6 +664,12 @@ test("cliente limpio despliega deuda e interés cobrado en la misma página, con
   await expect(
     ana.getByRole("link", { name: "WhatsApp de Ana Socia" }),
   ).toBeVisible();
+  await expect(
+    ana.locator('dl[aria-label="Resumen de Ana Socia"]'),
+  ).toContainText("S/ 870.00");
+  await expect(
+    ana.locator('dl[aria-label="Resumen de Ana Socia"]'),
+  ).toContainText("Interés cobrado (ganancia)");
   await ana.getByRole("button", { name: /^Ana Socia/ }).click();
   const region = ana.getByRole("region", { name: "Cuenta de Ana Socia" });
   await expect(region).toContainText("S/ 870.00");
@@ -672,6 +687,12 @@ test("cliente limpio despliega deuda e interés cobrado en la misma página, con
     name: "Maria Liquidada",
     exact: true,
   });
+  await expect(
+    maria.locator('dl[aria-label="Resumen de Maria Liquidada"]'),
+  ).toContainText("S/ 60.00");
+  await expect(
+    maria.locator('dl[aria-label="Resumen de Maria Liquidada"]'),
+  ).toContainText("S/ 0.00");
   await maria.getByRole("button", { name: /^Maria Liquidada/ }).click();
   await expect(region).toHaveCount(0);
   await expect(maria.getByRole("region")).toContainText("Liquidado");
@@ -848,14 +869,16 @@ test("recordatorio WhatsApp prepara estado, días de mora, advertencia y firma s
     await dashboardFixtures(),
   );
   await login(page);
-  await navigateModule(page, "Cobros semanales");
-  const link = page
-    .getByRole("row")
-    .filter({ hasText: "Luis Trabajador" })
-    .getByRole("link", {
-      name: "Recordar pago a Luis Trabajador por WhatsApp",
+  await navigateModule(page, "Panel general");
+  await page
+    .getByRole("button", {
+      name: "Ver detalle de Luis Trabajador",
       exact: true,
-    });
+    })
+    .click();
+  const link = page
+    .getByRole("dialog")
+    .getByRole("link", { name: "Recordar pago por WhatsApp", exact: true });
   const href = await link.getAttribute("href");
   const url = new URL(href!);
   const text = url.searchParams.get("text")!;

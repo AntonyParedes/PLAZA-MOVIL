@@ -83,7 +83,7 @@ Este rediseño no necesita migraciones nuevas ni cambios en las variables de ent
 
 ## Clientes: cuenta desplegable
 
-Clientes muestra nombre, condición, stand y WhatsApp; pulsar el nombre abre los detalles en la misma página. La cuenta tiene color según su estado y muestra Saldo e Interés cobrado (ganancia), sumado de sus pagos reales. Debajo están préstamos, cronogramas, historial y contacto. La edición sigue limitada al administrador. WhatsApp prepara un resumen de deuda y atraso para enviar manualmente, con advertencia general y firma de Gerencia. Esta actualización no requiere SQL adicional.
+Clientes muestra nombre, condición, stand, Saldo restante, Interés cobrado (ganancia) y WhatsApp; pulsar el nombre abre los detalles en la misma página. La cuenta tiene color según su estado y muestra Saldo e Interés cobrado (ganancia), sumado de sus pagos reales. Debajo están préstamos, cronogramas, historial y contacto. La edición sigue limitada al administrador. WhatsApp prepara un resumen de deuda y atraso para enviar manualmente, con advertencia general y firma de Gerencia. Esta actualización no requiere SQL adicional.
 
 ## Liquidación urgente al terminar el plazo
 
@@ -98,3 +98,5 @@ S/2.000 al 6 % mensual durante dos meses (ocho semanas): interés S/240, total S
 **En un proyecto existente con 001, 002 y 003 aplicadas, ejecutar únicamente `supabase/migrations/202610100004_loan_2000.sql` una vez en Supabase SQL Editor.** No repetir migraciones anteriores. La 004 actualiza la lista de productos permitidos en `create_loan` y conserva roles, idempotencia, bloqueos, préstamos y pagos previos. Después desplegar la versión nueva de la aplicación.
 
 Panel general marca en morado «Vence hoy» para cuotas vigentes con saldo pendiente que vencen exactamente hoy en Lima, sin agregar columnas ni cambiar el estado de cobranza. Las cuotas pagadas no se resaltan.
+
+El menú omite Cobros semanales e Historial de pagos. El registro y la consulta de pagos están en el detalle del préstamo, accesible desde Panel general o Préstamos; la agenda sigue en Dashboard y las exportaciones en Reportes. Estos cambios de interfaz no requieren SQL adicional.

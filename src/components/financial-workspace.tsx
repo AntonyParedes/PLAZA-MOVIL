@@ -52,13 +52,7 @@ import {
   Sheet,
 } from "@/components/ui/dashboard";
 export type FinancialView =
-  | "general"
-  | "resumen"
-  | "prestamos"
-  | "cobranzas"
-  | "refinanciaciones"
-  | "historial"
-  | "reportes";
+  "general" | "resumen" | "prestamos" | "refinanciaciones" | "reportes";
 const supabase = getSupabase();
 const money = (value: number | bigint) => formatPEN(value);
 export default function FinancialWorkspace({
@@ -90,7 +84,6 @@ export default function FinancialWorkspace({
   const tab = view;
   const [success, setSuccess] = useState("");
   const [agendaRange, setAgendaRange] = useState<"hoy" | "semana">("hoy");
-  const [collectionFilter, setCollectionFilter] = useState("pendientes");
   const [stateFilter, setStateFilter] = useState("todos");
   const [memberFilter, setMemberFilter] = useState("todos");
   const [showNew, setShowNew] = useState(false);
@@ -418,17 +411,6 @@ export default function FinancialWorkspace({
         : i.due_date >= week.start && i.due_date <= week.end,
     )
     .sort((a, b) => a.due_date.localeCompare(b.due_date));
-  const collectionRows = visibleSchedule
-    .filter(
-      (i) =>
-        collectionFilter === "todos" ||
-        (collectionFilter === "pagadas"
-          ? i.pending_cents === 0
-          : collectionFilter === "vencidas"
-            ? i.pending_cents > 0 && i.due_date < today
-            : i.pending_cents > 0),
-    )
-    .sort((a, b) => a.due_date.localeCompare(b.due_date));
   const refinanced = data.periods
     .filter(
       (p) =>
@@ -590,8 +572,6 @@ export default function FinancialWorkspace({
         .map((l) => l.id);
       if (kind === "general")
         selectedIds = generalEntries.map((e) => e.loan.id);
-      if (kind === "cobranzas")
-        selectedIds = collectionRows.map((i) => i.loan_id);
       if (kind === "pagos") selectedIds = payments.map((p) => p.loan_id);
       if (kind === "vencidos")
         selectedIds = installments
@@ -636,9 +616,7 @@ export default function FinancialWorkspace({
                 general: "Una vista completa de tu cartera",
                 resumen: "Tu cartera, de un vistazo",
                 prestamos: "Gestiona tus préstamos",
-                cobranzas: "Organiza tus cobros semanales",
                 refinanciaciones: "Refinanciaciones e historial",
-                historial: "Cada pago, en detalle",
                 reportes: "Informes para tomar decisiones",
               }[tab]
             }
@@ -652,15 +630,7 @@ export default function FinancialWorkspace({
         <div className="flex flex-wrap gap-2">
           <Button
             disabled={exporting || loading}
-            onClick={() =>
-              exportExcel(
-                tab === "general"
-                  ? "general"
-                  : tab === "cobranzas"
-                    ? "cobranzas"
-                    : "todos",
-              )
-            }
+            onClick={() => exportExcel(tab === "general" ? "general" : "todos")}
           >
             <Download size={16} />
             {exporting ? "Generando Excel…" : "Exportar Excel completo"}
@@ -1127,28 +1097,6 @@ export default function FinancialWorkspace({
           />
         </>
       )}
-      {tab === "cobranzas" && (
-        <>
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <label>
-              Estado de las cuotas
-              <select
-                value={collectionFilter}
-                onChange={(e) => setCollectionFilter(e.target.value)}
-              >
-                <option value="pendientes">Pendientes</option>
-                <option value="vencidas">Vencidas</option>
-                <option value="pagadas">Pagadas</option>
-                <option value="todos">Todas</option>
-              </select>
-            </label>
-            <p className="text-sm text-slate-500">
-              {collectionRows.length} cuotas · Cronograma vigente
-            </p>
-          </div>
-          {quotaTable(collectionRows, true)}
-        </>
-      )}
       {tab === "refinanciaciones" && (
         <>
           <SectionHeading
@@ -1231,65 +1179,6 @@ export default function FinancialWorkspace({
             ])}
             emptyTitle="Todavía no hay refinanciaciones"
             emptyDescription="Los nuevos periodos aparecerán aquí después de refinanciar un préstamo."
-          />
-        </>
-      )}
-      {tab === "historial" && (
-        <>
-          <SectionHeading
-            title="Pagos registrados"
-            description={`${payments.length} pagos encontrados · Los pagos son definitivos.`}
-            action={
-              <Button variant="outline" onClick={() => exportReport("pagos")}>
-                <Download size={16} /> Historial de pagos CSV
-              </Button>
-            }
-          />
-          <DataTable
-            caption="Historial de pagos"
-            headers={[
-              "Cliente",
-              "Fecha",
-              "Total",
-              "Interés",
-              "Capital",
-              "Estado",
-              "Detalle",
-            ]}
-            keys={[...payments]
-              .sort(
-                (a, b) =>
-                  b.paid_on.localeCompare(a.paid_on) ||
-                  b.created_at.localeCompare(a.created_at),
-              )
-              .map((p) => p.id)}
-            rows={[...payments]
-              .sort(
-                (a, b) =>
-                  b.paid_on.localeCompare(a.paid_on) ||
-                  b.created_at.localeCompare(a.created_at),
-              )
-              .map((p) => [
-                customerCell(loanById(p.loan_id)!),
-                dateLabel(p.paid_on),
-                <span key="total" className="font-semibold">
-                  {money(p.amount_cents)}
-                </span>,
-                money(p.interest_cents),
-                money(p.capital_cents),
-                <Badge key="status" tone="success">
-                  Registrado
-                </Badge>,
-                <Button
-                  key="open"
-                  variant="outline"
-                  onClick={() => setSelected(p.loan_id)}
-                >
-                  Ver préstamo
-                </Button>,
-              ])}
-            emptyTitle="Todavía no hay pagos registrados"
-            emptyDescription="Registra un pago desde el detalle del préstamo para consultar su historial."
           />
         </>
       )}

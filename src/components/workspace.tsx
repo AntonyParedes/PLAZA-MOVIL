@@ -255,7 +255,7 @@ export default function Workspace() {
             <div className="mt-8 grid max-w-lg gap-3 sm:grid-cols-3">
               {[
                 [Wallet, "Créditos"],
-                [CalendarDays, "Cobros semanales"],
+                [CalendarDays, "Pagos y saldos"],
                 [ShieldCheck, "Acceso por rol"],
               ].map(([Icon, text]) => {
                 const ItemIcon = Icon as typeof Wallet;

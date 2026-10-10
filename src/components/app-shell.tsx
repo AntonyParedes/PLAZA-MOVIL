@@ -6,9 +6,7 @@ import {
   LayoutDashboard,
   Users,
   Wallet,
-  CalendarDays,
   RefreshCw,
-  History,
   ChartNoAxesCombined,
   Settings,
   TableProperties,
@@ -30,9 +28,7 @@ export type Section =
   | "clientes"
   | "general"
   | "prestamos"
-  | "cobranzas"
   | "refinanciaciones"
-  | "historial"
   | "reportes"
   | "configuracion"
   | "importar";
@@ -41,9 +37,7 @@ const navigation = [
   { id: "general", label: "Panel general", icon: TableProperties },
   { id: "clientes", label: "Clientes", icon: Users },
   { id: "prestamos", label: "Préstamos", icon: Wallet },
-  { id: "cobranzas", label: "Cobros semanales", icon: CalendarDays },
   { id: "refinanciaciones", label: "Refinanciaciones", icon: RefreshCw },
-  { id: "historial", label: "Historial de pagos", icon: History },
   { id: "reportes", label: "Reportes", icon: ChartNoAxesCombined },
   { id: "configuracion", label: "Configuración", icon: Settings },
   { id: "importar", label: "Revisar Excel", icon: FileSpreadsheet },

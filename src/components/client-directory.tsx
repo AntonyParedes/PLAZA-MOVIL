@@ -165,6 +165,33 @@ export default function ClientDirectory({
                   className={`shrink-0 text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}
                 />
               </button>
+              <dl
+                aria-label={`Resumen de ${client.full_name}`}
+                className="grid grid-cols-2 gap-3 sm:min-w-[260px]"
+              >
+                <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                  <dt className="text-xs text-slate-500">Saldo restante</dt>
+                  <dd className="mt-1 break-words text-lg font-semibold tabular-nums">
+                    {ready
+                      ? formatPEN(account.balance)
+                      : loading
+                        ? "Cargando…"
+                        : "No disponible"}
+                  </dd>
+                </div>
+                <div className="rounded-xl bg-[var(--accent-soft)] px-3 py-2.5">
+                  <dt className="text-xs text-[var(--accent-text)]">
+                    Interés cobrado (ganancia)
+                  </dt>
+                  <dd className="mt-1 break-words text-lg font-semibold tabular-nums text-[var(--accent-text)]">
+                    {ready
+                      ? formatPEN(account.interestCollected)
+                      : loading
+                        ? "Cargando…"
+                        : "No disponible"}
+                  </dd>
+                </div>
+              </dl>
               {ready && /^9\d{8}$/.test(client.phone) ? (
                 <a
                   className="inline-flex min-h-11 self-end items-center justify-center gap-2 rounded-xl border border-[var(--brand-border)] sm:self-auto bg-[var(--brand-soft)] px-4 text-sm font-semibold text-[var(--brand-text)] hover:brightness-95"
