@@ -114,11 +114,12 @@ export const loanProducts = [
   { id: '500-1', label: 'S/500 · 7 % mensual · 1 mes (4 cuotas)', capital: 50000, rate: 700, months: 1 },
   { id: '1000-1', label: 'S/1.000 · 6 % mensual · 1 mes (4 cuotas)', capital: 100000, rate: 600, months: 1 },
   { id: '1000-2', label: 'S/1.000 · 6 % mensual · 2 meses (8 cuotas)', capital: 100000, rate: 600, months: 2 },
+  { id: '2000-2', label: 'S/2.000 · 6 % mensual · 2 meses (8 cuotas)', capital: 200000, rate: 600, months: 2 },
 ] as const;
 
 export function requireApprovedProduct(capital: number, rate: number, months: number) {
   if (!loanProducts.some(product => product.capital === capital && product.rate === rate && product.months === months)) {
-    throw new Error('Selecciona uno de los tres productos de préstamo autorizados.');
+    throw new Error('Selecciona uno de los productos de préstamo autorizados.');
   }
 }
 export function decimalSoles(amount: number | bigint): string {

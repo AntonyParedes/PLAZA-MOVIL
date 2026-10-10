@@ -103,47 +103,54 @@ async function login(page: Page) {
     }),
   ).toBeVisible();
 }
-test("administrador selecciona producto de ocho cuotas y envía tasa mensual con UUID idempotente", async ({
-  page,
-}) => {
-  const calls = await mockSupabase(page, "administrador");
-  await login(page);
-  await page
-    .getByRole("button", { name: "Panel general", exact: true })
-    .click();
-  await page.getByRole("button", { name: "Préstamos", exact: true }).click();
-  await page.getByRole("button", { name: "Nuevo préstamo" }).click();
-  await page
-    .getByRole("combobox", { name: "Producto de préstamo", exact: true })
-    .selectOption("1000-2");
-  await page.getByLabel("Fecha del préstamo").fill("2026-10-09");
-  await page.getByRole("button", { name: "Revisar cronograma" }).click();
-  await expect(page.getByText(/Cuota 8 ·/)).toBeVisible();
-  await expect(page.getByText(/Interés: S\/\s*120\.00/)).toBeVisible();
-  await expect(page.getByText(/Cuota 9 ·/)).toHaveCount(0);
-  await page
-    .getByRole("combobox", { name: "Cliente", exact: true })
-    .selectOption(clientId);
-  page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Confirmar desembolso" }).click();
-  await expect.poll(() => calls.length).toBe(1);
-  expect(calls[0].name).toBe("create_loan");
-  expect(calls[0].body).toMatchObject({
-    p_client: clientId,
-    p_capital: 100000,
-    p_rate: 600,
-    p_months: 2,
-    p_start: "2026-10-09",
+for (const [productId, capital, interest, quota] of [
+  ["1000-2", 100000, 120, 140],
+  ["2000-2", 200000, 240, 280],
+] as const)
+  test(`administrador selecciona ${productId} de ocho cuotas y envía tasa mensual con UUID idempotente`, async ({
+    page,
+  }) => {
+    const calls = await mockSupabase(page, "administrador");
+    await login(page);
+    await page
+      .getByRole("button", { name: "Panel general", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Préstamos", exact: true }).click();
+    await page.getByRole("button", { name: "Nuevo préstamo" }).click();
+    await page
+      .getByRole("combobox", { name: "Producto de préstamo", exact: true })
+      .selectOption(productId);
+    await page.getByLabel("Fecha del préstamo").fill("2026-10-09");
+    await page.getByRole("button", { name: "Revisar cronograma" }).click();
+    await expect(page.getByText(/Cuota 8 ·/)).toBeVisible();
+    await expect(
+      page.getByText(new RegExp(`Interés: S/\\s*${interest}\\.00`)),
+    ).toBeVisible();
+    await expect(page.getByText(/Cuota 8 ·/)).toContainText(`${quota}.00`);
+    await expect(page.getByText(/Cuota 9 ·/)).toHaveCount(0);
+    await page
+      .getByRole("combobox", { name: "Cliente", exact: true })
+      .selectOption(clientId);
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "Confirmar desembolso" }).click();
+    await expect.poll(() => calls.length).toBe(1);
+    expect(calls[0].name).toBe("create_loan");
+    expect(calls[0].body).toMatchObject({
+      p_client: clientId,
+      p_capital: capital,
+      p_rate: 600,
+      p_months: 2,
+      p_start: "2026-10-09",
+    });
+    expect(calls[0].body.p_request).toMatch(/^[0-9a-f-]{36}$/);
+    await page.getByRole("button", { name: "Reportes", exact: true }).click();
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Historial de pagos CSV" }).click();
+    expect((await download).suggestedFilename()).toBe("pagos-pm-creditos.csv");
+    await expect(
+      page.getByRole("button", { name: /anular|eliminar/i }),
+    ).toHaveCount(0);
   });
-  expect(calls[0].body.p_request).toMatch(/^[0-9a-f-]{36}$/);
-  await page.getByRole("button", { name: "Reportes", exact: true }).click();
-  const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Historial de pagos CSV" }).click();
-  expect((await download).suggestedFilename()).toBe("pagos-pm-creditos.csv");
-  await expect(
-    page.getByRole("button", { name: /anular|eliminar/i }),
-  ).toHaveCount(0);
-});
 test("jefe puede consultar pero no desembolsar ni importar", async ({
   page,
 }) => {
@@ -1015,3 +1022,43 @@ test("periodo terminado prioriza liquidación urgente en panel, cliente, WhatsAp
     "100 % del saldo restante",
   );
 });
+
+for (const width of [375, 1440])
+  test(`panel resalta vencimientos de hoy a ${width}px, conserva mora y modo noche`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ colorScheme: "light" });
+    await mockSupabase(page, "administrador", await dashboardFixtures());
+    await login(page);
+    await navigateModule(page, "Panel general");
+    const table = page.getByRole("table", {
+      name: "Panel general de préstamos",
+    });
+    const ana = table.getByRole("row").filter({ hasText: "Ana Socia" });
+    const maria = table.getByRole("row").filter({ hasText: "Maria Liquidada" });
+    const luis = table.getByRole("row").filter({ hasText: "Luis Trabajador" });
+    await expect(ana).toHaveClass(/payment-due-today/);
+    await expect(ana).toContainText("Vence hoy");
+    await expect(maria).not.toHaveClass(/payment-due-today/);
+    await expect(maria).not.toContainText("Vence hoy");
+    await expect(luis).not.toHaveClass(/payment-due-today/);
+    await expect(luis).toContainText("En mora");
+    await expect(table.locator("thead th")).toHaveCount(6);
+    const light = await ana.evaluate(
+      (el) => getComputedStyle(el).backgroundColor,
+    );
+    expect(light).toBe("rgb(243, 235, 247)");
+    await page.screenshot({
+      path: `test-results/due-today-${width}-light.png`,
+      fullPage: true,
+    });
+    await page.emulateMedia({ colorScheme: "dark" });
+    expect(
+      await ana.evaluate((el) => getComputedStyle(el).backgroundColor),
+    ).toBe("rgb(53, 36, 63)");
+    await page.screenshot({
+      path: `test-results/due-today-${width}-dark.png`,
+      fullPage: true,
+    });
+  });

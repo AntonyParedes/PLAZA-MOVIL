@@ -92,3 +92,125 @@ test('SQL respeta los tres productos y S/120 para dos meses; refinancia por un m
   assert.deepEqual(period,{months:1,opening_capital:87000,interest_generated:6000});
  }finally{await db.close();}
 });
+
+test("migración 004 agrega S/2000 con ocho cuotas, conserva préstamos previos y respeta permisos y pagos", async () => {
+  const db = await financialDatabase();
+  try {
+    const { readFile } = await import("node:fs/promises");
+    const today = (
+      await db.query<{ today: string }>(
+        "select ((now() at time zone 'America/Lima')::date)::text today",
+      )
+    ).rows[0].today;
+    const previousClient = (
+      await db.query<{ id: string }>(
+        "insert into public.clients(full_name,dni,phone,address) values('Cliente previo','01234567','999999999','Lima centro') returning id",
+      )
+    ).rows[0].id;
+    await assert.rejects(
+      db.exec(
+        `select public.create_loan('${randomUUID()}','${previousClient}',200000,600,2,'${today}')`,
+      ),
+      /Producto de préstamo no autorizado/,
+    );
+    const previousLoan = (
+      await db.query<{ id: string }>(
+        `select public.create_loan('${randomUUID()}','${previousClient}',50000,700,1,'${today}') id`,
+      )
+    ).rows[0].id;
+    const previousState = (
+      await db.query(`select * from public.loans where id='${previousLoan}'`)
+    ).rows;
+    await db.exec("reset role");
+    for (const name of [
+      "202610090003_client_stand.sql",
+      "202610100004_loan_2000.sql",
+    ])
+      await db.exec(
+        await readFile(
+          new URL(`../supabase/migrations/${name}`, import.meta.url),
+          "utf8",
+        ),
+      );
+    await db.exec(
+      `set role authenticated;set request.jwt.claim.sub='${admin}'`,
+    );
+    assert.deepEqual(
+      (await db.query(`select * from public.loans where id='${previousLoan}'`))
+        .rows,
+      previousState,
+    );
+    const client = (
+      await db.query<{ id: string }>(
+        "insert into public.clients(full_name,dni,phone,address,stand_code,member_type) values('Dos mil','87654321','999999998','Lima centro','B-02','trabajador') returning id",
+      )
+    ).rows[0].id;
+    for (const args of ["200000,600,1", "200000,700,2", "199999,600,2"])
+      await assert.rejects(
+        db.exec(
+          `select public.create_loan('${randomUUID()}','${client}',${args},'${today}')`,
+        ),
+        /Producto de préstamo no autorizado/,
+      );
+    const request = randomUUID();
+    const sql = `select public.create_loan('${request}','${client}',200000,600,2,'${today}') id`;
+    const loan = (await db.query<{ id: string }>(sql)).rows[0].id;
+    assert.equal((await db.query<{ id: string }>(sql)).rows[0].id, loan);
+    const rows = (
+      await db.query<{ number: number; scheduled_cents: number; days: number }>(
+        `select i.number,i.scheduled_cents::int,(i.due_date-p.start_date)::int days from public.installments i join public.loan_periods p on p.id=i.period_id where p.loan_id='${loan}' order by i.number`,
+      )
+    ).rows;
+    assert.equal(rows.length, 8);
+    assert.ok(
+      rows.every(
+        (r, index) => r.scheduled_cents === 28000 && r.days === (index + 1) * 7,
+      ),
+    );
+    assert.equal(
+      (
+        await db.query<{ interest: number }>(
+          `select interest_pending::int interest from public.loans where id='${loan}'`,
+        )
+      ).rows[0].interest,
+      24000,
+    );
+    await db.exec(
+      `select public.record_payment('${randomUUID()}','${loan}',28000,'${today}')`,
+    );
+    assert.deepEqual(
+      (
+        await db.query<{ capital: number; interest: number }>(
+          `select capital_pending::int capital,interest_pending::int interest from public.loans where id='${loan}'`,
+        )
+      ).rows[0],
+      { capital: 196000, interest: 0 },
+    );
+    await db.exec(`set request.jwt.claim.sub='${chief}'`);
+    await assert.rejects(
+      db.exec(
+        `select public.create_loan('${randomUUID()}','${client}',200000,600,2,'${today}')`,
+      ),
+    );
+    await db.exec(
+      `set request.jwt.claim.sub='${admin}';select public.record_payment('${randomUUID()}','${loan}',196000,'${today}')`,
+    );
+    assert.equal(
+      (
+        await db.query<{ status: string }>(
+          `select status from public.loans where id='${loan}'`,
+        )
+      ).rows[0].status,
+      "liquidado",
+    );
+    await db.exec("reset role;set role anon");
+    await assert.rejects(
+      db.exec(
+        `select public.create_loan('${randomUUID()}','${client}',200000,600,2,'${today}')`,
+      ),
+      /permission denied/,
+    );
+  } finally {
+    await db.close();
+  }
+});

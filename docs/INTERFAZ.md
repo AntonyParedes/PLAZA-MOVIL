@@ -66,3 +66,11 @@ El WhatsApp de Clientes resume el saldo y estado de la persona y la cuota pendie
 La clasificación prioriza Liquidado y luego Liquidación urgente: préstamo activo, saldo positivo y fecha de Lima posterior al fin del periodo vigente. Dentro del plazo siguen aplicando Puntual, atraso de 1–6 días y En mora desde 7 días. El vencimiento de un periodo histórico no reemplaza al periodo vigente de una refinanciación.
 
 Liquidación urgente utiliza rojo con texto, aparece primero en el panel y tiene un filtro propio. Clientes hereda este estado si cualquiera de sus préstamos requiere liquidación. Las cuotas vigentes con saldo de ese préstamo muestran la urgencia. El detalle y WhatsApp solicitan liquidar capital + interés pendientes completos; el monto corresponde al préstamo vencido, no a otros préstamos del cliente. Las fechas, los días de atraso y los abonos recibidos se conservan; la clasificación no crea penalidades ni modifica las operaciones financieras. Excel y CSV incluyen el estado.
+
+## Producto S/2.000 por dos meses
+
+La selección de préstamos incluye S/2.000 al 6 % mensual por dos meses: ocho cuotas de S/280, con S/240 de interés. En proyectos existentes se aplica únicamente la migración 004 después de las anteriores; permite el producto en el servidor y conserva las operaciones anteriores.
+
+## Cuotas que vencen hoy
+
+Panel general resalta en morado suave la fila y muestra «Vence hoy» en Día de pago cuando existe una cuota vigente, con saldo pendiente y vencimiento exactamente igual a la fecha de Lima. No se compara solo el día de la semana: una cuota de hace siete días sigue atrasada y no se resalta como vencimiento de hoy. Las cuotas pagadas y los periodos históricos no activan el resaltado. El estado de cobranza conserva su color y prioridad. La fecha se actualiza cada minuto y el resaltado adapta el contraste al modo noche y a las tarjetas de celular.

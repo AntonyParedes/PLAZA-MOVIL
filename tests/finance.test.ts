@@ -148,3 +148,16 @@ test('presenta y exporta importes grandes sin perder céntimos',async()=>{
  assert.ok(formatPEN(18014398509481982n).endsWith('.82'));
  assert.equal(decimalSoles(1),'0.01');
 });
+
+test("S/2000 al 6 % mensual por dos meses: interés 240, total 2240 y ocho cuotas de 280", () => {
+  assert.doesNotThrow(() => requireApprovedProduct(200000, 600, 2));
+  assert.throws(() => requireApprovedProduct(200000, 600, 1));
+  assert.throws(() => requireApprovedProduct(200000, 700, 2));
+  const plan = scheduleLoan(200000, 600, 2, "2026-10-10");
+  assert.equal(plan.interestCents, 24000);
+  assert.equal(plan.totalCents, 224000);
+  assert.equal(plan.installments.length, 8);
+  assert.ok(plan.installments.every((i) => i.scheduledCents === 28000));
+  assert.equal(plan.installments[0].dueDate, "2026-10-17");
+  assert.equal(plan.installments[7].dueDate, "2026-12-05");
+});

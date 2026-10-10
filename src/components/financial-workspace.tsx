@@ -386,6 +386,14 @@ export default function FinancialWorkspace({
           "es",
         ),
     );
+  const dueToday = (loanId: string) =>
+    data.installments.some(
+      (i) =>
+        i.loan_id === loanId &&
+        i.is_current &&
+        i.pending_cents > 0 &&
+        i.due_date === today,
+    );
   const generalExportHeaders = [
     "Nombres y apellidos",
     "Código stand",
@@ -741,6 +749,9 @@ export default function FinancialWorkspace({
               "Estado",
             ]}
             keys={generalEntries.map((e) => e.loan.id)}
+            rowClassNames={generalEntries.map((e) =>
+              dueToday(e.loan.id) ? "payment-due-today" : "",
+            )}
             rows={generalEntries.map(({ loan, client, status }) => {
               const paymentDate =
                 status.nextDate ??
@@ -767,13 +778,18 @@ export default function FinancialWorkspace({
                   {client?.full_name ?? "Cliente no disponible"}
                 </button>,
                 status.startDate ? dateLabel(status.startDate) : "—",
-                paymentDate ? (
-                  <span key="day" className="capitalize">
-                    {weekdayLabel(paymentDate)}
+                <div key="day" className="space-y-2">
+                  <span className="capitalize">
+                    {paymentDate ? weekdayLabel(paymentDate) : "—"}
                   </span>
-                ) : (
-                  "—"
-                ),
+                  {dueToday(loan.id) && (
+                    <span className="block">
+                      <span className="inline-flex rounded-full bg-[var(--accent-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-text)]">
+                        Vence hoy
+                      </span>
+                    </span>
+                  )}
+                </div>,
                 <span key="balance" className="font-semibold tabular-nums">
                   {money(status.balance)}
                 </span>,

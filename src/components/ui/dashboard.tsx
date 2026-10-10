@@ -205,6 +205,7 @@ export function DataTable({
   rows,
   keys,
   caption,
+  rowClassNames,
   emptyTitle = "Sin resultados",
   emptyDescription = "Prueba otra búsqueda o cambia los filtros.",
 }: {
@@ -212,6 +213,7 @@ export function DataTable({
   rows: ReactNode[][];
   keys: string[];
   caption: string;
+  rowClassNames?: string[];
   emptyTitle?: string;
   emptyDescription?: string;
 }) {
@@ -237,7 +239,7 @@ export function DataTable({
           </thead>
           <tbody>
             {rows.map((cells, index) => (
-              <tr key={keys[index]}>
+              <tr key={keys[index]} className={rowClassNames?.[index]}>
                 {cells.map((cell, i) => (
                   <td key={headers[i]} data-label={headers[i]}>
                     {cell}

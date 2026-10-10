@@ -307,3 +307,8 @@
   background: var(--danger-bg);
   border-color: var(--danger-border);
 }
+
+.data-table tr.payment-due-today,
+.data-table tbody tr.payment-due-today:hover {
+  background: var(--accent-soft);
+}
