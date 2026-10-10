@@ -1,7 +1,7 @@
 "use client";
-import { useRef, type ReactNode, type ComponentType } from "react";
+import { useRef, useId, type ReactNode, type ComponentType } from "react";
 import { Dialog } from "radix-ui";
-import { Inbox, X, CheckCircle2, AlertCircle } from "lucide-react";
+import { Inbox, Search, X, CheckCircle2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "./button";
 
@@ -225,7 +225,7 @@ export function DataTable({
     );
   return (
     <div className="data-table surface">
-      <div className="table-scroll">
+      <div className="table-scroll" role="region" aria-label={caption} tabIndex={0}>
         <table className="w-full text-left text-sm">
           <caption className="sr-only">{caption}</caption>
           <thead>
@@ -306,5 +306,24 @@ export function Sheet({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+export function ClientSearch({ value, onChange, label = "Buscar cliente / DNI / stand", accessibleLabel }: {
+  value: string;
+  onChange: (value: string) => void;
+  label?: string;
+  accessibleLabel?: string;
+}) {
+  const id = useId();
+  return (
+    <div>
+      <label htmlFor={id}>{label}</label>
+      <div className="relative">
+        <Search size={17} className="absolute left-3 top-3.5 text-slate-400" aria-hidden="true" />
+        <input id={id} type="search" aria-label={accessibleLabel} value={value} onChange={(event) => onChange(event.target.value)} placeholder="Nombre, DNI o stand" className="pl-10 pr-12" />
+        {value && <button type="button" aria-label="Limpiar búsqueda" onClick={() => onChange("")} className="absolute right-0 top-0 flex h-11 w-11 items-center justify-center rounded-xl text-slate-500 hover:bg-slate-50"><X size={17} aria-hidden="true" /></button>}
+      </div>
+    </div>
   );
 }

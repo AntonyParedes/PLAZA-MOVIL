@@ -8,9 +8,11 @@ La interfaz anterior reunía las tareas financieras en pestañas de una sola pan
 
 La interfaz utiliza verde #4EB852, morado #9763A8 y gris #A9ABAE, con blanco y negro según el contraste. Las acciones principales son verdes, los acentos morados y la navegación violeta oscuro. Usa tipografía Geist local con licencia OFL. El archivo local evita descargas de fuentes durante la compilación. Pagado/liquidado se muestran en verde, pendiente/atrasado en ámbar y vencido/mora en rojo; los estados siempre incluyen texto.
 
-`src/components/app-shell.tsx` centraliza navegación, encabezado, búsqueda compartida y menú de usuario. En escritorio se puede plegar el menú. En tablet y móvil se utiliza un diálogo de navegación con foco controlado y cierre con Escape.
+`src/components/app-shell.tsx` centraliza navegación, encabezado y menú de usuario. En escritorio se puede plegar el menú. En tablet y móvil se utiliza un diálogo de navegación con foco controlado y cierre con Escape.
 
 `src/components/ui/dashboard.tsx` comparte tarjetas, indicadores, etiquetas, estados vacíos, mensajes, skeletons, tablas y paneles laterales. Las tablas conservan encabezados semánticos y una descripción. En móviles se presentan como tarjetas etiquetadas; en pantallas mayores, las tablas extensas se desplazan dentro de su contenedor. Los controles tienen una altura mínima de 44 px. Los paneles gestionan el foco, contienen la navegación con Tab y devuelven el foco al cerrar. El enlace «Ir al contenido» está disponible por teclado.
+
+El menú agrupa Operaciones, Análisis y Herramientas. Préstamos reúne la cartera y Refinanciaciones mediante controles internos; ambos mantienen el mismo detalle y los permisos existentes. Cada pantalla utiliza un único buscador contextual compartido (`ClientSearch`), con opción de limpiar el texto.
 
 ## Módulos y datos
 
@@ -18,7 +20,7 @@ La interfaz utiliza verde #4EB852, morado #9763A8 y gris #A9ABAE, con blanco y n
 - **Panel general:** muestra solo Prestatario, Fecha del préstamo, Día de pago (día de la semana), Saldo, Cuota semanal y Estado. Los atrasados aparecen primero por días de atraso; después se ordenan por el vencimiento pendiente y los liquidados quedan al final. El nombre abre el detalle con identificación, fechas, refinanciación, cronograma, pagos y recordatorio por WhatsApp de la cuota vigente pendiente más antigua. Excel y CSV conservan todas sus columnas. Mantiene los filtros y reglas de atraso: de 1 a 6 días «Se atrasó X días», desde 7 «En mora». La refinanciación se muestra por separado. La búsqueda es por nombre, DNI o stand; no hay filtro por rango de fechas.
 - **Clientes:** búsqueda por nombre/DNI/stand y filtro de condición. Cada fila muestra nombre, socio/trabajador, stand, Saldo restante, Interés cobrado (ganancia) y WhatsApp. Los importes se ven sin desplegar el cliente; durante la carga muestran «Cargando…» y si falla la consulta «No disponible», en vez de aparentar saldo cero. Pulsar el nombre despliega su cuenta debajo, sin cambiar de módulo: Saldo, interés cobrado (ganancia), estado, atraso, préstamos, cuotas, pagos y datos de contacto. Solo un cliente se despliega a la vez; la edición del administrador está dentro del detalle. Los fondos son verdes para puntual/liquidado, ámbar para atraso y rojos desde 7 días de mora, con etiquetas de texto. El cliente sin préstamos usa un fondo neutro. Ganancia suma el interés efectivamente pagado de todos sus préstamos, sin capital ni interés pendiente o generado sin cobrar.
 - **Préstamos:** productos autorizados, vista previa de cuotas y confirmación del desembolso.
-- **Refinanciaciones:** préstamos activos con condiciones pendientes y periodos refinanciados. La acción mantiene los bloqueos existentes por interés y cuotas vencidas pendientes.
+- **Refinanciaciones (dentro de Préstamos):** préstamos activos con condiciones pendientes y periodos refinanciados. La acción mantiene los bloqueos existentes por interés y cuotas vencidas pendientes.
 - **Reportes:** conserva las exportaciones y los totales por semana/mes.
 - **Configuración:** muestra moneda, idioma, zona horaria y alcance del rol actual. Es informativa; los roles continúan gestionándose por el responsable del sistema.
 - **Revisar Excel:** conserva la revisión local y sus advertencias; no realiza importación a la base de datos.

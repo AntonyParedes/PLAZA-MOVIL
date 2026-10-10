@@ -348,3 +348,58 @@
 .data-table tbody tr.payment-due-today:hover {
   background: var(--accent-soft);
 }
+
+/* Shared navigation hierarchy and operation switch. */
+.nav-group {
+  padding: 1.15rem 0.75rem 0.5rem;
+  color: #c7bbcf;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.section-switch {
+  display: inline-flex;
+  max-width: 100%;
+  gap: 0.25rem;
+  padding: 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 0.9rem;
+  background: var(--neutral-50);
+}
+.section-switch button {
+  min-height: 44px;
+  padding: 0.65rem 1rem;
+  border: 0;
+  border-radius: 0.65rem;
+  background: transparent;
+  color: var(--neutral-600);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.section-switch button[aria-current="page"] {
+  background: var(--surface);
+  color: var(--accent-text);
+  box-shadow: 0 1px 4px #20192512;
+}
+.section-switch button:hover {
+  color: var(--accent-text);
+}
+.data-table td[data-label="Saldo"],
+.data-table td[data-label="Cuota semanal"],
+.data-table td[data-label="Monto"] {
+  font-variant-numeric: tabular-nums;
+}
+@media (min-width: 768px) {
+  .data-table th {
+    padding-block: 0.85rem;
+  }
+  .data-table td {
+    padding-block: 0.9rem;
+  }
+}
+
+input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}

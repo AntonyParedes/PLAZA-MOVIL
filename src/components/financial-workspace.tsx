@@ -29,7 +29,6 @@ import {
   Download,
   Plus,
   MessageCircle,
-  Search,
   Wallet,
   CircleDollarSign,
   TrendingUp,
@@ -43,6 +42,7 @@ import {
 import {
   Badge,
   Card,
+  ClientSearch,
   DataTable,
   Kpi,
   LoadingSkeleton,
@@ -613,7 +613,7 @@ export default function FinancialWorkspace({
           <h2 className="text-2xl font-semibold tracking-tight">
             {
               {
-                general: "Una vista completa de tu cartera",
+                general: "Tu cobranza semanal",
                 resumen: "Tu cartera, de un vistazo",
                 prestamos: "Gestiona tus préstamos",
                 refinanciaciones: "Refinanciaciones e historial",
@@ -624,7 +624,13 @@ export default function FinancialWorkspace({
           <p className="mt-2 text-sm text-slate-500">
             {tab === "resumen"
               ? "Supervisa los saldos y prioriza los cobros del día."
-              : "Consulta, filtra y encuentra la información que necesitas."}
+              : tab === "general"
+                ? "Identifica quién debe pagar y abre su nombre para enviar un recordatorio."
+                : tab === "prestamos"
+                  ? "Registra un préstamo o abre uno para cobrar y consultar su saldo."
+                  : tab === "refinanciaciones"
+                    ? "Revisa las condiciones y consulta los periodos refinanciados."
+                    : "Descarga la información completa de tu cartera y movimientos."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -646,22 +652,7 @@ export default function FinancialWorkspace({
       </div>
       <Card className="!p-4">
         <div className="max-w-xl">
-          <label>
-            Buscar cliente / DNI / stand
-            <div className="relative">
-              <Search
-                size={17}
-                className="absolute left-3 top-3.5 text-slate-400"
-                aria-hidden="true"
-              />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Nombre, DNI o stand"
-                className="pl-10"
-              />
-            </div>
-          </label>
+          <ClientSearch value={search} onChange={setSearch} />
         </div>
       </Card>
       {tab === "general" && (

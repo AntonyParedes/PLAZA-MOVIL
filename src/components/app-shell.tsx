@@ -6,7 +6,6 @@ import {
   LayoutDashboard,
   Users,
   Wallet,
-  RefreshCw,
   ChartNoAxesCombined,
   Settings,
   TableProperties,
@@ -18,7 +17,6 @@ import {
   ChevronDown,
   LogOut,
   ShieldCheck,
-  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/dashboard";
@@ -38,7 +36,6 @@ const navigation = [
   { id: "general", label: "Panel general", icon: TableProperties },
   { id: "clientes", label: "Clientes", icon: Users },
   { id: "prestamos", label: "Préstamos", icon: Wallet },
-  { id: "refinanciaciones", label: "Refinanciaciones", icon: RefreshCw },
   { id: "reportes", label: "Reportes", icon: ChartNoAxesCombined },
   { id: "configuracion", label: "Configuración", icon: Settings },
   { id: "importar", label: "Revisar Excel", icon: FileSpreadsheet },
@@ -65,16 +62,12 @@ export default function AppShell({
   onNavigate,
   role,
   onLogout,
-  search,
-  onSearchChange,
   children,
 }: {
   section: Section;
   onNavigate: (section: Section) => void;
   role: "administrador" | "jefe";
   onLogout: () => void;
-  search: string;
-  onSearchChange: (value: string) => void;
   children: ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -83,7 +76,7 @@ export default function AppShell({
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [section]);
   const title =
-    navigation.find((item) => item.id === section)?.label ?? "Dashboard";
+    navigation.find((item) => item.id === (section === "refinanciaciones" ? "prestamos" : section))?.label ?? "Dashboard";
   function menu(compact: boolean) {
     return (
       <>
@@ -99,17 +92,20 @@ export default function AppShell({
               (item) => item.id !== "importar" || role === "administrador",
             )
             .map((item) => (
+              <div key={item.id}>
+              {!compact && ["dashboard", "reportes", "configuracion"].includes(item.id) && (
+                <p className="nav-group">{item.id === "dashboard" ? "Operaciones" : item.id === "reportes" ? "Análisis" : "Herramientas"}</p>
+              )}
               <button
-                key={item.id}
                 title={compact ? item.label : undefined}
-                aria-current={section === item.id ? "page" : undefined}
+                aria-current={(section === item.id || (item.id === "prestamos" && section === "refinanciaciones")) ? "page" : undefined}
                 onClick={() => {
                   onNavigate(item.id);
                   setMobileOpen(false);
                 }}
                 className={cn(
-                  "flex min-h-11 items-center gap-3 rounded-xl px-3 py-3 text-left text-[13px] font-medium transition-colors",
-                  section === item.id
+                  "flex w-full min-h-11 items-center gap-3 rounded-xl px-3 py-3 text-left text-[13px] font-medium transition-colors",
+                  (section === item.id || (item.id === "prestamos" && section === "refinanciaciones"))
                     ? "bg-blue-600/20 text-blue-200 ring-1 ring-blue-400/20"
                     : "text-slate-300 hover:bg-white/5 hover:text-white",
                   compact && "justify-center px-2",
@@ -118,6 +114,7 @@ export default function AppShell({
                 <item.icon size={19} aria-hidden="true" className="shrink-0" />
                 <span className={compact ? "sr-only" : ""}>{item.label}</span>
               </button>
+              </div>
             ))}
         </nav>
         <div
@@ -216,22 +213,6 @@ export default function AppShell({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2 sm:gap-4">
-            {!["configuracion", "importar"].includes(section) && (
-              <div className="relative hidden w-56 lg:block">
-                <Search
-                  size={16}
-                  aria-hidden="true"
-                  className="absolute left-3 top-3.5 text-slate-400"
-                />
-                <input
-                  aria-label="Búsqueda de clientes en la barra superior"
-                  value={search}
-                  onChange={(e) => onSearchChange(e.target.value)}
-                  placeholder="Buscar cliente, DNI o stand"
-                  className="!mt-0 pl-9"
-                />
-              </div>
-            )}
             <span className="hidden text-xs text-slate-500 xl:block">
               {new Intl.DateTimeFormat("es-PE", {
                 timeZone: "America/Lima",
@@ -293,6 +274,12 @@ export default function AppShell({
           tabIndex={-1}
           className="mx-auto max-w-[1680px] space-y-6 p-4 sm:p-6 lg:p-8"
         >
+          {["prestamos", "refinanciaciones"].includes(section) && (
+            <nav aria-label="Operaciones de préstamos" className="section-switch">
+              <button aria-current={section === "prestamos" ? "page" : undefined} onClick={() => onNavigate("prestamos")}>Préstamos</button>
+              <button aria-current={section === "refinanciaciones" ? "page" : undefined} onClick={() => onNavigate("refinanciaciones")}>Refinanciaciones</button>
+            </nav>
+          )}
           {children}
         </main>
         <footer className="px-6 pb-6 text-xs text-slate-500">

@@ -554,7 +554,6 @@ for (const width of [375, 430, 768, 1024, 1440, 1920])
       "Panel general",
       "Clientes",
       "Préstamos",
-      "Refinanciaciones",
       "Reportes",
       "Configuración",
       "Revisar Excel",
@@ -627,9 +626,8 @@ test("pago confirmado mantiene el RPC, muestra éxito y bloquea refinanciación 
   await sheet
     .getByRole("button", { name: "Cerrar detalle", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Refinanciaciones", exact: true })
-    .click();
+  await navigateModule(page, "Préstamos");
+  await page.getByRole("navigation", { name: "Operaciones de préstamos" }).getByRole("button", { name: "Refinanciaciones", exact: true }).click();
   await page
     .getByRole("row")
     .filter({ hasText: "Diego Puntual" })
@@ -1183,3 +1181,31 @@ test("el botón de apariencia también funciona al ingresar, con almacenamiento 
     await page.evaluate(() => getComputedStyle(document.body).backgroundColor),
   ).toBe("rgb(247, 246, 249)");
 });
+
+for (const width of [375, 1440]) {
+  test(`navegación agrupada conserva refinanciaciones y búsqueda única a ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mockSupabase(page, "administrador", await dashboardFixtures());
+    await login(page);
+    await navigateModule(page, "Préstamos");
+    const operations = page.getByRole("navigation", { name: "Operaciones de préstamos" });
+    await expect(operations).toBeVisible();
+    await expect(page.getByRole("searchbox")).toHaveCount(1);
+    await page.getByRole("searchbox").fill("Diego");
+    await operations.getByRole("button", { name: "Refinanciaciones", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Historial de refinanciaciones" })).toBeVisible();
+    await expect(page.getByRole("searchbox")).toHaveValue("Diego");
+    await expect(operations.getByRole("button", { name: "Refinanciaciones", exact: true })).toHaveAttribute("aria-current", "page");
+    if (width < 1024) await page.getByRole("button", { name: "Abrir menú" }).click();
+    const mainMenu = page.getByRole("navigation", { name: "Menú principal" }).filter({ visible: true });
+    await expect(mainMenu.getByRole("button", { name: "Refinanciaciones", exact: true })).toHaveCount(0);
+    await expect(mainMenu.getByRole("button", { name: "Préstamos", exact: true })).toHaveAttribute("aria-current", "page");
+    if (width < 1024) await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Limpiar búsqueda", exact: true }).click();
+    await expect(page.getByRole("searchbox")).toHaveValue("");
+    await page.screenshot({ path: `test-results/navigation-after-${width}.png`, fullPage: true });
+    await page.getByRole("button", { name: "Activar modo noche" }).click();
+    await page.screenshot({ path: `test-results/navigation-after-dark-${width}.png`, fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+  });
+}

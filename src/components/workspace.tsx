@@ -3,7 +3,6 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { z } from "zod";
 import {
   ShieldCheck,
-  Search,
   Plus,
   ArrowRight,
   Wallet,
@@ -14,6 +13,7 @@ import AppShell, { Brand, type Section } from "@/components/app-shell";
 import {
   Badge,
   Card,
+  ClientSearch,
   EmptyState,
   LoadingSkeleton,
   Notice,
@@ -356,8 +356,6 @@ export default function Workspace() {
       onNavigate={navigate}
       role={role}
       onLogout={logout}
-      search={search}
-      onSearchChange={setSearch}
     >
       {notice}
       {section === "importar" && role === "administrador" ? (
@@ -448,23 +446,7 @@ export default function Workspace() {
           />
           <Card className="!p-4">
             <div className="grid items-end gap-4 sm:grid-cols-[1fr_220px]">
-              <label>
-                Buscar cliente
-                <div className="relative">
-                  <Search
-                    size={18}
-                    aria-hidden="true"
-                    className="absolute left-3 top-3.5 text-slate-400"
-                  />
-                  <input
-                    aria-label="Buscar por nombre o DNI"
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Nombre, DNI o stand"
-                    className="pl-10"
-                  />
-                </div>
-              </label>
+              <ClientSearch value={search} onChange={setSearch} label="Buscar cliente" accessibleLabel="Buscar por nombre o DNI" />
               <label>
                 Condición
                 <select
