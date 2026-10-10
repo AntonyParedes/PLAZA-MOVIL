@@ -287,7 +287,7 @@ test("conserva el acceso al volver a la pestaña y al restaurar la sesión; sali
   ).toBeVisible();
 });
 
-test("panel general identifica stand, socio/trabajador, saldo, atraso, mora y refinanciación", async ({
+test("panel general simplificado conserva seis columnas, prioriza atraso y despliega identificación y WhatsApp", async ({
   page,
 }) => {
   const { limaDate, addDays } = await import("../src/lib/portal");
@@ -357,13 +357,12 @@ test("panel general identifica stand, socio/trabajador, saldo, atraso, mora y re
     .getByRole("button", { name: "Panel general", exact: true })
     .click();
   const ana = page.getByRole("row").filter({ hasText: "Ana Socia" });
-  await expect(ana).toContainText("S-01");
+  await expect(ana).not.toContainText("S-01");
   await expect(ana).toContainText("Se atrasó 3 días");
   await expect(ana).toContainText("S/ 870.00");
   const luis = page.getByRole("row").filter({ hasText: "Luis Trabajador" });
-  await expect(luis).toContainText("trabajador");
+  await expect(luis).not.toContainText("trabajador");
   await expect(luis).toContainText("En mora");
-  await expect(luis).toContainText("Sí");
   await expect(
     page.getByRole("row").filter({ hasText: "Maria Liquidada" }),
   ).toContainText("Liquidado");
@@ -373,6 +372,36 @@ test("panel general identifica stand, socio/trabajador, saldo, atraso, mora y re
   await expect(
     page.getByRole("columnheader", { name: "Día de pago", exact: true }),
   ).toBeVisible();
+  await expect(
+    page
+      .getByRole("table", { name: "Panel general de préstamos" })
+      .getByRole("columnheader"),
+  ).toHaveText([
+    "Prestatario",
+    "Fecha del préstamo",
+    "Día de pago",
+    "Saldo",
+    "Cuota semanal",
+    "Estado",
+  ]);
+  const table = page.getByRole("table", { name: "Panel general de préstamos" });
+  await expect(table.getByRole("row").nth(1)).toContainText("Luis Trabajador");
+  const open = ana.getByRole("button", {
+    name: "Ver detalle de Ana Socia",
+    exact: true,
+  });
+  await open.click();
+  const detail = page.getByRole("dialog");
+  await expect(detail).toContainText("S-01");
+  await expect(detail).toContainText("socio");
+  const href = await detail
+    .getByRole("link", { name: "Recordar pago por WhatsApp" })
+    .getAttribute("href");
+  expect(new URL(href!).searchParams.get("text")).toContain(
+    "Días de atraso de esta cuota: 3 días",
+  );
+  await page.keyboard.press("Escape");
+  await expect(open).toBeFocused();
   await page
     .getByRole("combobox", { name: "Filtrar estado" })
     .selectOption("En mora");
@@ -523,7 +552,7 @@ for (const width of [375, 430, 768, 1024, 1440, 1920])
     await page
       .getByRole("row")
       .filter({ hasText: "Ana Socia" })
-      .getByRole("button", { name: "Abrir", exact: true })
+      .getByRole("button", { name: "Ver detalle de Ana Socia", exact: true })
       .click();
     await expect(page.getByRole("dialog")).toBeVisible();
     await expect(page.getByLabel("Monto (S/)")).toBeVisible();
@@ -772,7 +801,7 @@ test("cobro de varias cuotas calcula pendientes parciales y liquidación complet
   await page
     .getByRole("row")
     .filter({ hasText: "Ana Socia" })
-    .getByRole("button", { name: "Abrir", exact: true })
+    .getByRole("button", { name: "Ver detalle de Ana Socia", exact: true })
     .click();
   const sheet = page.getByRole("dialog");
   await sheet

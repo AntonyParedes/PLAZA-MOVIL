@@ -161,8 +161,8 @@ export default function FinancialWorkspace({
       .toLowerCase()
       .includes(search.toLowerCase());
   const loans = data.loans.filter(matches);
-  const payments = data.payments.filter(
-    (p) => Boolean(loanById(p.loan_id) && matches(loanById(p.loan_id)!)),
+  const payments = data.payments.filter((p) =>
+    Boolean(loanById(p.loan_id) && matches(loanById(p.loan_id)!)),
   );
   const installments = data.installments.filter(
     (i) =>
@@ -177,6 +177,10 @@ export default function FinancialWorkspace({
   }, []);
   const week = weekBounds(today);
   const selectedLoan = loanById(selected);
+  const selectedClient = selectedLoan ? customer(selectedLoan) : undefined;
+  const selectedStatus = selectedLoan
+    ? collectionStatus(selectedLoan, data.periods, data.installments, today)
+    : undefined;
   const selectedPeriod = current(selected);
   const selectedQuotas = data.installments
     .filter(
@@ -366,8 +370,21 @@ export default function FinancialWorkspace({
           (stateFilter === "refinanciado"
             ? row.status.refinanced
             : row.status.state === stateFilter)),
+    )
+    .sort(
+      (a, b) =>
+        Number(a.status.state === "Liquidado") -
+          Number(b.status.state === "Liquidado") ||
+        b.status.daysLate - a.status.daysLate ||
+        (a.status.nextDate ?? "9999-12-31").localeCompare(
+          b.status.nextDate ?? "9999-12-31",
+        ) ||
+        (a.client?.full_name ?? "").localeCompare(
+          b.client?.full_name ?? "",
+          "es",
+        ),
     );
-  const generalHeaders = [
+  const generalExportHeaders = [
     "Nombres y apellidos",
     "Código stand",
     "Condición",
@@ -394,12 +411,12 @@ export default function FinancialWorkspace({
   const collectionRows = visibleSchedule
     .filter(
       (i) =>
-        (collectionFilter === "todos" ||
-          (collectionFilter === "pagadas"
-            ? i.pending_cents === 0
-            : collectionFilter === "vencidas"
-              ? i.pending_cents > 0 && i.due_date < today
-              : i.pending_cents > 0)),
+        collectionFilter === "todos" ||
+        (collectionFilter === "pagadas"
+          ? i.pending_cents === 0
+          : collectionFilter === "vencidas"
+            ? i.pending_cents > 0 && i.due_date < today
+            : i.pending_cents > 0),
     )
     .sort((a, b) => a.due_date.localeCompare(b.due_date));
   const refinanced = data.periods
@@ -526,7 +543,7 @@ export default function FinancialWorkspace({
   }
   function exportGeneral() {
     downloadCSV("panel-general.csv", [
-      generalHeaders,
+      generalExportHeaders,
       ...generalEntries.map(({ client, status }) => [
         client?.full_name ?? "",
         client?.stand_code ?? "Por registrar",
@@ -695,58 +712,59 @@ export default function FinancialWorkspace({
           </div>
           <p className="text-xs text-slate-500">
             {generalEntries.length} préstamos · Saldo: capital e intereses
-            pendientes. El atraso parte de la cuota impaga más antigua.
+            pendientes. Primero aparecen los atrasados. Pulsa un nombre para ver
+            detalles y enviar un recordatorio.
           </p>
           <DataTable
             caption="Panel general de préstamos"
-            headers={[...generalHeaders, "Detalle"]}
+            headers={[
+              "Prestatario",
+              "Fecha del préstamo",
+              "Día de pago",
+              "Saldo",
+              "Cuota semanal",
+              "Estado",
+            ]}
             keys={generalEntries.map((e) => e.loan.id)}
-            rows={generalEntries.map(({ loan, client, status }) => [
-              <span key="name" className="font-semibold">
-                {client?.full_name ?? "Cliente no disponible"}
-              </span>,
-              client?.stand_code ?? "Por registrar",
-              <Badge
-                key="member"
-                tone={client?.member_type === "socio" ? "info" : "neutral"}
-              >
-                {client?.member_type ?? "Por registrar"}
-              </Badge>,
-              status.startDate ? dateLabel(status.startDate) : "—",
-              <span key="balance" className="font-semibold tabular-nums">
-                {money(status.balance)}
-              </span>,
-              money(status.weeklyCents),
-              status.nextDate ? (
-                <div key="date">
-                  <span className="capitalize">
-                    {weekdayLabel(status.nextDate)}
+            rows={generalEntries.map(({ loan, client, status }) => {
+              const paymentDate =
+                status.nextDate ??
+                data.installments.find(
+                  (i) => i.loan_id === loan.id && i.is_current,
+                )?.due_date;
+              return [
+                <button
+                  key="name"
+                  type="button"
+                  aria-label={`Ver detalle de ${client?.full_name ?? "prestatario"}`}
+                  onClick={() => setSelected(loan.id)}
+                  className="min-h-11 rounded-lg border-l-4 px-3 text-left font-semibold text-slate-900 hover:bg-slate-50"
+                  style={{
+                    borderColor:
+                      status.state === "En mora"
+                        ? "var(--danger-text)"
+                        : status.state === "Atrasado"
+                          ? "var(--warning-text)"
+                          : "var(--success-text)",
+                  }}
+                >
+                  {client?.full_name ?? "Cliente no disponible"}
+                </button>,
+                status.startDate ? dateLabel(status.startDate) : "—",
+                paymentDate ? (
+                  <span key="day" className="capitalize">
+                    {weekdayLabel(paymentDate)}
                   </span>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {dateLabel(status.nextDate)}
-                  </p>
-                </div>
-              ) : (
-                "—"
-              ),
-              statusBadge(loan),
-              status.daysLate,
-              status.refinanced ? (
-                <Badge key="refinanced" tone="info">
-                  Sí
-                </Badge>
-              ) : (
-                "No"
-              ),
-              <Button
-                key="open"
-                variant="outline"
-                onClick={() => setSelected(loan.id)}
-              >
-                Abrir
-                <ChevronRight size={14} />
-              </Button>,
-            ])}
+                ) : (
+                  "—"
+                ),
+                <span key="balance" className="font-semibold tabular-nums">
+                  {money(status.balance)}
+                </span>,
+                money(status.weeklyCents),
+                statusBadge(loan),
+              ];
+            })}
             emptyTitle="Sin préstamos para estos filtros"
             emptyDescription="Ajusta la búsqueda o registra un préstamo desde el módulo Préstamos."
           />
@@ -1363,6 +1381,45 @@ export default function FinancialWorkspace({
               <PaymentBadge status={selectedLoan.status} />
               {statusBadge(selectedLoan)}
             </div>
+            <dl className="grid gap-3 rounded-2xl bg-slate-50 p-4 text-sm sm:grid-cols-2">
+              {[
+                ["Código stand", selectedClient?.stand_code ?? "Por registrar"],
+                ["Condición", selectedClient?.member_type ?? "Por registrar"],
+                ["DNI", selectedClient?.dni ?? "—"],
+                ["Celular", selectedClient?.phone ?? "—"],
+                [
+                  "Fecha del préstamo",
+                  selectedStatus?.startDate
+                    ? dateLabel(selectedStatus.startDate)
+                    : "—",
+                ],
+                [
+                  "Cuota pendiente vence",
+                  selectedStatus?.nextDate
+                    ? dateLabel(selectedStatus.nextDate)
+                    : "Sin cuotas pendientes",
+                ],
+                ["Días de atraso", String(selectedStatus?.daysLate ?? 0)],
+                ["Refinanciado", selectedStatus?.refinanced ? "Sí" : "No"],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <dt className="text-xs text-slate-500">{label}</dt>
+                  <dd className="mt-1 font-medium">{value}</dd>
+                </div>
+              ))}
+            </dl>
+            {selectedClient &&
+              selectedQuotas[0] &&
+              /^9\d{8}$/.test(selectedClient.phone) && (
+                <a
+                  className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[var(--brand-border)] bg-[var(--brand-soft)] px-4 text-sm font-semibold text-[var(--brand-text)]"
+                  href={`https://wa.me/51${selectedClient.phone}?text=${encodeURIComponent(whatsappReminder(selectedClient, selectedLoan, selectedQuotas[0], data.periods, data.installments, today))}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <MessageCircle size={18} /> Recordar pago por WhatsApp
+                </a>
+              )}
             <div className="grid gap-3 sm:grid-cols-3">
               {[
                 ["Capital original", money(selectedLoan.original_capital)],
