@@ -498,7 +498,6 @@ async function dashboardFixtures() {
   return { clients, loans, loan_periods, installment_balances, payments };
 }
 async function navigateModule(page: Page, name: string) {
-  if (name === "Panel general") name = "Préstamos";
   if (name === "Revisar Excel") {
     await navigateModule(page, "Configuración");
     await page.getByRole("button", { name, exact: true }).click();
@@ -1221,7 +1220,7 @@ for (const width of [375, 1440]) {
 
 
 for (const width of [375, 1440]) {
-  test(`inicio operativo con cinco módulos y agenda completa a ${width}px`, async ({ page }) => {
+  test(`inicio operativo con seis módulos y agenda completa a ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     const fixtures = await dashboardFixtures();
     const { limaDate, addDays } = await import("../src/lib/portal");
@@ -1243,7 +1242,7 @@ for (const width of [375, 1440]) {
     await expect(page.getByRole("button", { name: "Exportar Excel completo" })).toHaveCount(0);
     if (width < 1024) await page.getByRole("button", { name: "Abrir menú" }).click();
     const menu = page.getByRole("navigation", { name: "Menú principal" }).filter({ visible: true });
-    await expect(menu.getByRole("button")).toHaveCount(5);
+    await expect(menu.getByRole("button")).toHaveCount(6);
     if (width < 1024) await page.keyboard.press("Escape");
     await page.mouse.move(0, 0);
     await expect(page.getByRole("button", { name: "Esta semana", exact: true })).toHaveCSS("background-color", "rgb(78, 184, 82)");
@@ -1301,3 +1300,26 @@ test("consulta actualiza saldos cada 30 segundos aunque Realtime no esté habili
   await expect(page.getByText("S/ 2,230.00", { exact: true })).toBeVisible();
   expect(calls).toHaveLength(0);
 });
+
+
+for (const role of ["administrador", "jefe"] as const) {
+  for (const width of [375, 1440]) {
+    test(`Panel general vuelve al menú para ${role} a ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await mockSupabase(page, role, await dashboardFixtures());
+      await login(page);
+      await navigateModule(page, "Panel general");
+      await expect(page.getByRole("heading", { name: "Panel general", exact: true })).toBeVisible();
+      const table = page.getByRole("table", { name: "Panel general de préstamos" });
+      await expect(table.getByRole("columnheader")).toHaveText(["Prestatario", "Fecha del préstamo", "Día de pago", "Saldo", "Cuota semanal", "Estado"]);
+      await expect(page.getByRole("button", { name: "Nuevo préstamo", exact: true })).toHaveCount(0);
+      await table.getByRole("button", { name: "Ver detalle de Ana Socia", exact: true }).click();
+      await expect(page.getByRole("dialog")).toContainText("Ana Socia");
+      await page.keyboard.press("Escape");
+      if (width < 1024) await page.getByRole("button", { name: "Abrir menú" }).click();
+      await expect(page.getByRole("navigation", { name: "Menú principal" }).filter({ visible: true }).getByRole("button", { name: "Panel general", exact: true })).toHaveAttribute("aria-current", "page");
+      if (width < 1024) await page.keyboard.press("Escape");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+    });
+  }
+}

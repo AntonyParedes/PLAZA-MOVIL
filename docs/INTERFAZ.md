@@ -12,7 +12,7 @@ La interfaz utiliza verde #4EB852, morado #9763A8 y gris #A9ABAE, con blanco y n
 
 `src/components/ui/dashboard.tsx` comparte tarjetas, indicadores, etiquetas, estados vacíos, mensajes, skeletons, tablas y paneles laterales. Las tablas conservan encabezados semánticos y una descripción. En móviles se presentan como tarjetas etiquetadas; en pantallas mayores, las tablas extensas se desplazan dentro de su contenedor. Los controles tienen una altura mínima de 44 px. Los paneles gestionan el foco, contienen la navegación con Tab y devuelven el foco al cerrar. El enlace «Ir al contenido» está disponible por teclado.
 
-El menú tiene cinco módulos: Inicio, Clientes, Préstamos, Reportes y Configuración, agrupados en Operaciones, Análisis y Herramientas. Préstamos reúne el antiguo Panel general (cartera de seis columnas), el formulario de nuevo préstamo y Refinanciaciones mediante controles internos; ambos mantienen el mismo detalle y los permisos existentes. Cada pantalla utiliza un único buscador contextual compartido (`ClientSearch`), con opción de limpiar el texto.
+El menú tiene seis módulos: Inicio, Panel general, Clientes, Préstamos, Reportes y Configuración, agrupados en Operaciones, Análisis y Herramientas. Panel general tiene acceso directo para cobranza; Préstamos conserva la cartera compartida, el formulario de nuevo préstamo y Refinanciaciones mediante controles internos; ambos mantienen el mismo detalle y los permisos existentes. Cada pantalla utiliza un único buscador contextual compartido (`ClientSearch`), con opción de limpiar el texto.
 
 ## Módulos y datos
 
@@ -88,3 +88,7 @@ Para evitar recorridos repetidos se mantienen índices en memoria de clientes, p
 ## Consulta y sincronización
 
 El rol `jefe` se identifica como Solo lectura y conserva los permisos de consulta existentes. La interfaz vuelve a leer clientes y operaciones tras eventos de Supabase Realtime, con respaldo cada 30 segundos y al recuperar el foco. El responsable debe habilitar la publicación Realtime y crear el usuario conforme a `docs/ACCESO-CONSULTA.md`. No se crean cuentas ni se modifica la publicación de producción desde el navegador.
+
+## Panel general con acceso directo
+
+Se restaura su entrada lateral y su título propio por la prioridad operativa de cobranza. Conserva las seis columnas, filtros por condición y estado, búsqueda por nombre/DNI/stand, urgencia, mora y resaltado del día. Abre el mismo detalle autorizado. El formulario de nuevo préstamo aparece solo en Préstamos; ambas vistas reutilizan la tabla y los cálculos, sin duplicar implementación ni añadir consultas por navegar entre ellas. La sincronización y el rol de consulta se mantienen.

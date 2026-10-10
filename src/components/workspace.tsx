@@ -419,9 +419,7 @@ export default function Workspace() {
             clients={clients}
             role={role}
             view={
-              section === "prestamos"
-                ? "general"
-                : section === "dashboard"
+              section === "dashboard"
                 ? "resumen"
                 : section === "importar"
                   ? "general"

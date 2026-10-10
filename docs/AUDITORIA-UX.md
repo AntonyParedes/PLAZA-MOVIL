@@ -58,3 +58,9 @@ El archivo de requisitos recibido termina cortado en «Fór…». Se aplica el a
 Compilación, ESLint y TypeScript aprobados; 46 pruebas de lógica aprobadas. Se ejecutaron los 34 casos de Playwright: 33 pasaron en el conjunto completo; el caso nuevo de Realtime requirió corregir el simulador al protocolo Phoenix 2.0 utilizado por la dependencia instalada. Los dos casos de sincronización se repitieron y pasaron, cubriendo los 34 casos. La prueba comprueba cambio de saldo mediante eventos, respaldo de 30 segundos y ausencia de solicitudes de escritura para consulta. La inspección visual confirma el Inicio compacto y las cinco entradas de navegación.
 
 Se reutiliza el rol `jefe`; se muestra como Solo lectura. Crear la cuenta y habilitar la publicación Realtime requieren al responsable del proyecto, con instrucciones concretas en `docs/ACCESO-CONSULTA.md`. No existe una URL de vista previa disponible y no hay credenciales administrativas de Vercel o Supabase en este entorno. Se publica únicamente la rama de revisión, sin modificar `main` ni producción.
+
+## Corrección tras revisión del usuario: Panel general
+
+La integración dentro de Préstamos dificultaba encontrar la herramienta principal de cobranza. Se restaura Panel general como acceso directo y se mantienen las mejoras de Inicio, refinanciaciones y configuración internas, exportaciones centralizadas y sincronización. El menú pasa a seis entradas. Panel general conserva la tabla de seis columnas y evita el formulario de desembolso; Préstamos incorpora esa operación, reutilizando tabla y cálculos. No cambia la base de datos ni los contratos financieros.
+
+Validación de la restauración: compilación, lint y TypeScript correctos; 13 casos de navegador aprobados, incluidos acceso directo para ambos roles en móvil/escritorio, seis columnas, estados urgentes, resaltado de hoy y operaciones financieras preservadas.

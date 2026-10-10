@@ -4,6 +4,7 @@ import { Dialog, DropdownMenu } from "radix-ui";
 import {
   Landmark,
   LayoutDashboard,
+  TableProperties,
   Users,
   Wallet,
   ChartNoAxesCombined,
@@ -31,6 +32,7 @@ export type Section =
   | "importar";
 const navigation = [
   { id: "dashboard", label: "Inicio", icon: LayoutDashboard },
+  { id: "general", label: "Panel general", icon: TableProperties },
   { id: "clientes", label: "Clientes", icon: Users },
   { id: "prestamos", label: "Préstamos", icon: Wallet },
   { id: "reportes", label: "Reportes", icon: ChartNoAxesCombined },
@@ -72,7 +74,7 @@ export default function AppShell({
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [section]);
   const title =
-    navigation.find((item) => item.id === (["general", "refinanciaciones"].includes(section) ? "prestamos" : section === "importar" ? "configuracion" : section))?.label ?? "Dashboard";
+    navigation.find((item) => item.id === (section === "refinanciaciones" ? "prestamos" : section === "importar" ? "configuracion" : section))?.label ?? "Dashboard";
   function menu(compact: boolean) {
     return (
       <>
@@ -91,14 +93,14 @@ export default function AppShell({
               )}
               <button
                 title={compact ? item.label : undefined}
-                aria-current={(section === item.id || (item.id === "prestamos" && ["general", "refinanciaciones"].includes(section)) || (item.id === "configuracion" && section === "importar")) ? "page" : undefined}
+                aria-current={(section === item.id || (item.id === "prestamos" && section === "refinanciaciones") || (item.id === "configuracion" && section === "importar")) ? "page" : undefined}
                 onClick={() => {
                   onNavigate(item.id);
                   setMobileOpen(false);
                 }}
                 className={cn(
                   "flex w-full min-h-11 items-center gap-3 rounded-xl px-3 py-3 text-left text-[13px] font-medium transition-colors",
-                  (section === item.id || (item.id === "prestamos" && ["general", "refinanciaciones"].includes(section)) || (item.id === "configuracion" && section === "importar"))
+                  (section === item.id || (item.id === "prestamos" && section === "refinanciaciones") || (item.id === "configuracion" && section === "importar"))
                     ? "bg-blue-600/20 text-blue-200 ring-1 ring-blue-400/20"
                     : "text-slate-300 hover:bg-white/5 hover:text-white",
                   compact && "justify-center px-2",

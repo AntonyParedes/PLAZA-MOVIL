@@ -79,7 +79,7 @@ export default function FinancialWorkspace({
   const [exporting, setExporting] = useState(false);
   const [revision, setRevision] = useState(0);
   const liveRevision = useLiveRevision();
-  const tab = view;
+  const tab = view === "prestamos" ? "general" : view;
   const [success, setSuccess] = useState("");
   const [agendaRange, setAgendaRange] = useState<"hoy" | "semana" | "vencidos" | "proximos">("hoy");
   const [stateFilter, setStateFilter] = useState("todos");
@@ -666,9 +666,7 @@ export default function FinancialWorkspace({
               ? "Supervisa los saldos y prioriza los cobros del día."
               : tab === "general"
                 ? "Identifica quién debe pagar y abre su nombre para enviar un recordatorio."
-                : tab === "prestamos"
-                  ? "Registra un préstamo o abre uno para cobrar y consultar su saldo."
-                  : tab === "refinanciaciones"
+                : tab === "refinanciaciones"
                     ? "Revisa las condiciones y consulta los periodos refinanciados."
                     : "Descarga la información completa de tu cartera y movimientos."}
           </p>
@@ -697,8 +695,8 @@ export default function FinancialWorkspace({
       </Card>
       {tab === "general" && (
         <>
-          <SectionHeading title="Cartera de préstamos" description="Saldo, cuota semanal y estado de cada prestatario." action={role === "administrador" && <Button onClick={() => { setShowNew(!showNew); setPreview(null); }}><Plus size={16} /> Nuevo préstamo</Button>} />
-          {showNew && role === "administrador" && (
+          {view === "prestamos" && <SectionHeading title="Cartera de préstamos" description="Saldo, cuota semanal y estado de cada prestatario." action={role === "administrador" && <Button onClick={() => { setShowNew(!showNew); setPreview(null); }}><Plus size={16} /> Nuevo préstamo</Button>} />}
+          {view === "prestamos" && showNew && role === "administrador" && (
             <Card>
               <SectionHeading
                 title="Preparar préstamo"
