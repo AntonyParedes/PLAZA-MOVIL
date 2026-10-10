@@ -31,11 +31,13 @@ export function clientAccount(
     ? "Sin préstamos"
     : loans.every((l) => l.status === "liquidado")
       ? "Liquidado"
-      : daysLate >= 7
-        ? "En mora"
-        : daysLate > 0
-          ? "Atrasado"
-          : "Puntual";
+      : entries.some((e) => e.requiresSettlement)
+        ? "Liquidación urgente"
+        : daysLate >= 7
+          ? "En mora"
+          : daysLate > 0
+            ? "Atrasado"
+            : "Puntual";
   return {
     entries,
     payments,
@@ -83,6 +85,10 @@ export function clientWhatsApp(
         "",
         `Préstamo ${index + 1}: ${e.state}. Saldo: ${formatPEN(e.balance)}.${e.refinanced ? " Refinanciado." : ""}`,
       );
+      if (e.requiresSettlement)
+        lines.push(
+          `El plazo terminó el ${dateLabel(e.termEndDate!)}. Debes liquidar el 100 % del saldo restante: ${formatPEN(e.balance)}.`,
+        );
       if (quota)
         lines.push(
           `Cuota pendiente: ${quota.number}`,

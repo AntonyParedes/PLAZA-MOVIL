@@ -112,3 +112,19 @@ test("una cuota futura no se presenta vencida aunque el préstamo tenga otra cuo
   const clean = remind(future, [{ ...older, is_current: false }, future]);
   assert.doesNotMatch(clean, /penalidades|Estado del préstamo: En mora/);
 });
+
+test("contrato vencido pide el saldo completo, reemplaza mora y conserva firma sin inventar cargos", () => {
+  const expiredPeriod = { ...period, end_date: addDays(today, -1) };
+  const text = whatsappReminder(
+    client,
+    loan,
+    { ...quota, due_date: addDays(today, -8) },
+    [expiredPeriod],
+    [{ ...quota, due_date: addDays(today, -8) }],
+    today,
+  );
+  assert.match(text, /Estado del préstamo: Liquidación urgente/);
+  assert.match(text, /100 % del saldo restante: S\/\s*870\.00/);
+  assert.doesNotMatch(text, /En mora|Saldo de esta cuota|multa de/);
+  assert.match(text, /La Gerencia/);
+});

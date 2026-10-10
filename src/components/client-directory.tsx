@@ -108,14 +108,13 @@ export default function ClientDirectory({
       {clients.map((client) => {
         const account = clientAccount(client.id, data, today);
         const open = expanded === client.id;
-        const tone =
-          account.state === "En mora"
-            ? "danger"
-            : account.state === "Atrasado"
-              ? "warning"
-              : account.state === "Sin préstamos"
-                ? "neutral"
-                : "success";
+        const tone = ["En mora", "Liquidación urgente"].includes(account.state)
+          ? "danger"
+          : account.state === "Atrasado"
+            ? "warning"
+            : account.state === "Sin préstamos"
+              ? "neutral"
+              : "success";
         const stateLabel =
           account.state === "Atrasado"
             ? `Se atrasó ${account.daysLate} días`
@@ -213,6 +212,13 @@ export default function ClientDirectory({
                 </div>
                 {ready ? (
                   <>
+                    {account.entries.some((e) => e.requiresSettlement) && (
+                      <Notice error>
+                        El plazo de pago ha terminado. Los préstamos marcados
+                        con Liquidación urgente deben liquidarse al 100 % del
+                        saldo restante.
+                      </Notice>
+                    )}
                     <dl className="grid gap-3 sm:grid-cols-2">
                       {[
                         ["Saldo", account.balance],
@@ -249,6 +255,13 @@ export default function ClientDirectory({
                             </h4>
                             <PaymentBadge status={entry.state} />
                           </div>
+                          {entry.requiresSettlement && (
+                            <p className="mt-3 text-sm font-semibold text-[var(--danger-text)]">
+                              El plazo terminó el{" "}
+                              {dateLabel(entry.termEndDate!)}. Liquidar el 100 %
+                              del saldo: {formatPEN(entry.balance)}.
+                            </p>
+                          )}
                           <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
                             <div>
                               <dt className="text-xs text-slate-500">Saldo</dt>

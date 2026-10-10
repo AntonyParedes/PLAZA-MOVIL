@@ -60,3 +60,9 @@ En caso de atraso se incluye «El atraso puede generar penalidades según las co
 El mensaje sale desde la cuenta de WhatsApp del operador cuando pulsa Enviar en WhatsApp. Abrir el enlace no envía automáticamente ni inicia solicitudes a un servicio de mensajería.
 
 El WhatsApp de Clientes resume el saldo y estado de la persona y la cuota pendiente más antigua de cada préstamo activo, con días de atraso y advertencia general de penalidades. Para préstamos liquidados informa saldo cero y agradece los pagos; para clientes sin préstamos no inventa deuda. Los enlaces permanecen deshabilitados durante la carga, si hay error de consulta o si el celular no tiene formato peruano válido. Actualizar vuelve a consultar los movimientos mediante los permisos actuales del operador.
+
+## Fin del plazo y liquidación urgente
+
+La clasificación prioriza Liquidado y luego Liquidación urgente: préstamo activo, saldo positivo y fecha de Lima posterior al fin del periodo vigente. Dentro del plazo siguen aplicando Puntual, atraso de 1–6 días y En mora desde 7 días. El vencimiento de un periodo histórico no reemplaza al periodo vigente de una refinanciación.
+
+Liquidación urgente utiliza rojo con texto, aparece primero en el panel y tiene un filtro propio. Clientes hereda este estado si cualquiera de sus préstamos requiere liquidación. Las cuotas vigentes con saldo de ese préstamo muestran la urgencia. El detalle y WhatsApp solicitan liquidar capital + interés pendientes completos; el monto corresponde al préstamo vencido, no a otros préstamos del cliente. Las fechas, los días de atraso y los abonos recibidos se conservan; la clasificación no crea penalidades ni modifica las operaciones financieras. Excel y CSV incluyen el estado.

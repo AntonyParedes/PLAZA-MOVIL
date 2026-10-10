@@ -950,3 +950,68 @@ test("Excel completo se descarga, abre como XLSX y conserva datos, cuotas y pago
     "Luis Trabajador",
   );
 });
+
+test("periodo terminado prioriza liquidación urgente en panel, cliente, WhatsApp y Excel", async ({
+  page,
+}) => {
+  const fixtures = await dashboardFixtures();
+  const { limaDate, addDays } = await import("../src/lib/portal");
+  const today = limaDate();
+  fixtures.loan_periods[0].start_date = addDays(today, -29);
+  fixtures.loan_periods[0].end_date = addDays(today, -1);
+  fixtures.installment_balances[0].due_date = addDays(today, -1);
+  fixtures.installment_balances[0].number = 4;
+  await mockSupabase(page, "administrador", fixtures);
+  await login(page);
+  await navigateModule(page, "Panel general");
+  const table = page.getByRole("table", { name: "Panel general de préstamos" });
+  await expect(table.getByRole("row").nth(1)).toContainText("Ana Socia");
+  const ana = table.getByRole("row").filter({ hasText: "Ana Socia" });
+  await expect(ana).toContainText("Liquidación urgente");
+  await expect(ana).not.toContainText("En mora");
+  await page
+    .getByRole("combobox", { name: "Filtrar estado" })
+    .selectOption("Liquidación urgente");
+  await expect(table.getByRole("row")).toHaveCount(2);
+  await ana
+    .getByRole("button", { name: "Ver detalle de Ana Socia", exact: true })
+    .click();
+  const sheet = page.getByRole("dialog");
+  await expect(sheet).toContainText("Debe liquidar el 100 % del Saldo");
+  const href = await sheet
+    .getByRole("link", { name: "Recordar pago por WhatsApp" })
+    .getAttribute("href");
+  const text = new URL(href!).searchParams.get("text")!;
+  expect(text).toContain("Liquidación urgente");
+  expect(text).toMatch(/100 % del saldo restante: S\/\s*870\.00/);
+  expect(text).not.toContain("En mora");
+  await sheet
+    .getByRole("button", { name: "Liquidar préstamo", exact: true })
+    .click();
+  await expect(sheet.getByLabel("Monto (S/)")).toHaveValue("870.00");
+  await page.keyboard.press("Escape");
+  const downloadPromise = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Exportar Excel completo", exact: true })
+    .click();
+  const download = await downloadPromise;
+  const ExcelJS = await import("exceljs");
+  const book = new ExcelJS.default.Workbook();
+  await book.xlsx.readFile((await download.path())!);
+  const cartera = book.getWorksheet("Cartera")!;
+  const stateColumn = (cartera.getRow(1).values as string[]).findIndex(
+    (v) => v === "ESTADO",
+  );
+  expect(cartera.getCell(2, stateColumn).value).toBe("Liquidación urgente");
+  await navigateModule(page, "Clientes");
+  const client = page.getByRole("article", { name: "Ana Socia", exact: true });
+  await client.getByRole("button", { name: /^Ana Socia/ }).click();
+  await expect(client.getByRole("region")).toContainText("Liquidación urgente");
+  await expect(client.getByRole("region")).toHaveClass(/client-account-danger/);
+  const clientHref = await client
+    .getByRole("link", { name: "WhatsApp de Ana Socia" })
+    .getAttribute("href");
+  expect(new URL(clientHref!).searchParams.get("text")).toContain(
+    "100 % del saldo restante",
+  );
+});

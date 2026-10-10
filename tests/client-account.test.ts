@@ -54,7 +54,7 @@ function fixture(): AccountData {
         loan_id: "active",
         number: 1,
         start_date: "2026-09-01",
-        end_date: "2026-09-29",
+        end_date: "2026-10-29",
         months: 1,
         opening_capital: 100000,
         interest_generated: 6000,
@@ -153,4 +153,15 @@ test("liquidado y sin préstamo no aparentan mora ni cobranza pendiente", () => 
   assert.equal(empty.state, "Sin préstamos");
   assert.equal(empty.interestCollected, 0n);
   assert.equal(empty.balance, 0n);
+});
+
+test("urgencia de un préstamo prevalece en la cuenta y WhatsApp exige solo su saldo total", () => {
+  const data = fixture();
+  data.periods[0].end_date = "2026-10-08";
+  const a = clientAccount("c", data, "2026-10-09");
+  assert.equal(a.state, "Liquidación urgente");
+  const message = clientWhatsApp(client, data, "2026-10-09");
+  assert.match(message, /Estado: Liquidación urgente/);
+  assert.match(message, /100 % del saldo restante: S\/\s*820\.00/);
+  assert.doesNotMatch(message, /En mora/);
 });

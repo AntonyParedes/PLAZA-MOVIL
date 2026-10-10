@@ -84,3 +84,9 @@ Este rediseño no necesita migraciones nuevas ni cambios en las variables de ent
 ## Clientes: cuenta desplegable
 
 Clientes muestra nombre, condición, stand y WhatsApp; pulsar el nombre abre los detalles en la misma página. La cuenta tiene color según su estado y muestra Saldo e Interés cobrado (ganancia), sumado de sus pagos reales. Debajo están préstamos, cronogramas, historial y contacto. La edición sigue limitada al administrador. WhatsApp prepara un resumen de deuda y atraso para enviar manualmente, con advertencia general y firma de Gerencia. Esta actualización no requiere SQL adicional.
+
+## Liquidación urgente al terminar el plazo
+
+Desde el día siguiente a la fecha final del periodo vigente, un préstamo activo con saldo pasa a «Liquidación urgente», con prioridad sobre atraso y mora. La fecha se evalúa en Lima; una refinanciación aprobada utiliza su propio periodo vigente. Los préstamos liquidados quedan liquidados.
+
+Panel general los coloca primero y permite filtrar este estado. Clientes, detalles, cuotas y WhatsApp muestran la urgencia. El recordatorio de préstamo terminado solicita el 100 % del saldo restante (capital + interés pendientes), conserva los días de atraso y no agrega cargos. Excel y CSV exportan el nuevo estado. No requiere migración SQL ni modifica saldos o fechas contractuales.

@@ -43,7 +43,7 @@ export function PaymentBadge({ status }: { status: string }) {
     )[status] ?? status;
   const tone = ["pagado", "liquidado", "Puntual"].includes(status)
     ? "success"
-    : ["vencido", "En mora"].includes(status)
+    : ["vencido", "En mora", "Liquidación urgente"].includes(status)
       ? "danger"
       : ["pendiente", "pago parcial", "Atrasado"].includes(status)
         ? "warning"

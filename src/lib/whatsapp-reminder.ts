@@ -37,6 +37,21 @@ export function whatsappReminder(
           ? "Atrasada"
           : "Pendiente";
   const loanState = collectionStatus(loan, periods, installments, today);
+  if (loanState.requiresSettlement)
+    return [
+      `Hola ${client.full_name}, te contactamos de PM Créditos.`,
+      "",
+      "Estado del préstamo: Liquidación urgente",
+      `El plazo de tu préstamo terminó el ${dateLabel(loanState.termEndDate!)}.`,
+      `Debes liquidar el 100 % del saldo restante: ${formatPEN(loanState.balance)}.`,
+      `Días de atraso de la cuota pendiente más antigua: ${loanState.daysLate}`,
+      "Tu periodo de pago ha finalizado. Es urgente cancelar la totalidad del saldo pendiente.",
+      "El atraso puede generar penalidades según las condiciones de tu préstamo.",
+      "",
+      "Atentamente,",
+      "La Gerencia",
+      "PM Créditos",
+    ].join("\n");
   const lines = [
     `Hola ${client.full_name}, te contactamos de PM Créditos.`,
     "",

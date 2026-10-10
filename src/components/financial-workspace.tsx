@@ -375,6 +375,8 @@ export default function FinancialWorkspace({
       (a, b) =>
         Number(a.status.state === "Liquidado") -
           Number(b.status.state === "Liquidado") ||
+        Number(b.status.requiresSettlement) -
+          Number(a.status.requiresSettlement) ||
         b.status.daysLate - a.status.daysLate ||
         (a.status.nextDate ?? "9999-12-31").localeCompare(
           b.status.nextDate ?? "9999-12-31",
@@ -450,7 +452,7 @@ export default function FinancialWorkspace({
     return (
       <Badge
         tone={
-          status.state === "En mora"
+          ["En mora", "Liquidación urgente"].includes(status.state)
             ? "danger"
             : status.state === "Atrasado"
               ? "warning"
@@ -464,6 +466,16 @@ export default function FinancialWorkspace({
     );
   }
   function quotaBadge(i: Installment) {
+    const loan = loanById(i.loan_id);
+    if (
+      i.is_current &&
+      i.pending_cents > 0 &&
+      loan &&
+      collectionStatus(loan, data.periods, data.installments, today)
+        .requiresSettlement
+    )
+      return <Badge tone="danger">Liquidación urgente</Badge>;
+
     return (
       <PaymentBadge
         status={
@@ -698,6 +710,9 @@ export default function FinancialWorkspace({
                   onChange={(e) => setStateFilter(e.target.value)}
                 >
                   <option value="todos">Todos</option>
+                  <option value="Liquidación urgente">
+                    Liquidación urgente
+                  </option>
                   <option value="Puntual">Puntuales</option>
                   <option value="Atrasado">Atrasados (1–6 días)</option>
                   <option value="En mora">En mora (7 días o más)</option>
@@ -740,12 +755,13 @@ export default function FinancialWorkspace({
                   onClick={() => setSelected(loan.id)}
                   className="min-h-11 rounded-lg border-l-4 px-3 text-left font-semibold text-slate-900 hover:bg-slate-50"
                   style={{
-                    borderColor:
-                      status.state === "En mora"
-                        ? "var(--danger-text)"
-                        : status.state === "Atrasado"
-                          ? "var(--warning-text)"
-                          : "var(--success-text)",
+                    borderColor: ["En mora", "Liquidación urgente"].includes(
+                      status.state,
+                    )
+                      ? "var(--danger-text)"
+                      : status.state === "Atrasado"
+                        ? "var(--warning-text)"
+                        : "var(--success-text)",
                   }}
                 >
                   {client?.full_name ?? "Cliente no disponible"}
@@ -1377,6 +1393,13 @@ export default function FinancialWorkspace({
           <div className="space-y-6">
             {error && <Notice error>{error}</Notice>}
             {success && <Notice>{success}</Notice>}
+            {selectedStatus?.requiresSettlement && (
+              <Notice error>
+                Liquidación urgente: el plazo terminó el{" "}
+                {dateLabel(selectedStatus.termEndDate!)}. Debe liquidar el 100 %
+                del Saldo: {money(selectedStatus.balance)}.
+              </Notice>
+            )}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <PaymentBadge status={selectedLoan.status} />
               {statusBadge(selectedLoan)}
@@ -1398,6 +1421,12 @@ export default function FinancialWorkspace({
                   selectedStatus?.nextDate
                     ? dateLabel(selectedStatus.nextDate)
                     : "Sin cuotas pendientes",
+                ],
+                [
+                  "Fin del plazo",
+                  selectedStatus?.termEndDate
+                    ? dateLabel(selectedStatus.termEndDate)
+                    : "—",
                 ],
                 ["Días de atraso", String(selectedStatus?.daysLate ?? 0)],
                 ["Refinanciado", selectedStatus?.refinanced ? "Sí" : "No"],
