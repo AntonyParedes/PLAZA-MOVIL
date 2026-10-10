@@ -113,7 +113,7 @@ for (const [productId, capital, interest, quota] of [
     const calls = await mockSupabase(page, "administrador");
     await login(page);
     await page
-      .getByRole("button", { name: "Panel general", exact: true })
+      .getByRole("button", { name: "Préstamos", exact: true })
       .click();
     await page.getByRole("button", { name: "Préstamos", exact: true }).click();
     await page.getByRole("button", { name: "Nuevo préstamo" }).click();
@@ -170,7 +170,7 @@ test("jefe puede consultar pero no desembolsar ni importar", async ({
     page.getByRole("button", { name: "Editar", exact: true }),
   ).toHaveCount(0);
   await page
-    .getByRole("button", { name: "Panel general", exact: true })
+    .getByRole("button", { name: "Préstamos", exact: true })
     .click();
   await page.getByRole("button", { name: "Préstamos", exact: true }).click();
   await expect(
@@ -183,9 +183,8 @@ test("Excel muestra duplicados, saldos inconsistentes y fórmulas sin escribir a
 }) => {
   const calls = await mockSupabase(page, "administrador");
   await login(page);
-  await page
-    .getByRole("button", { name: "Revisar Excel", exact: true })
-    .click();
+  await navigateModule(page, "Configuración");
+  await page.getByRole("button", { name: "Revisar Excel", exact: true }).click();
   const { default: ExcelJS } = await import("exceljs");
   const book = new ExcelJS.Workbook();
   const sheet = book.addWorksheet("Préstamos");
@@ -277,7 +276,7 @@ test("conserva el acceso al volver a la pestaña y al restaurar la sesión; sali
   ).toBeEnabled();
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "Dashboard", exact: true }),
+    page.getByRole("heading", { name: "Inicio", exact: true }),
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Menú de usuario", exact: true })
@@ -361,7 +360,7 @@ test("panel general simplificado conserva seis columnas, prioriza atraso y despl
   });
   await login(page);
   await page
-    .getByRole("button", { name: "Panel general", exact: true })
+    .getByRole("button", { name: "Préstamos", exact: true })
     .click();
   const ana = page.getByRole("row").filter({ hasText: "Ana Socia" });
   await expect(ana).not.toContainText("S-01");
@@ -499,9 +498,15 @@ async function dashboardFixtures() {
   return { clients, loans, loan_periods, installment_balances, payments };
 }
 async function navigateModule(page: Page, name: string) {
+  if (name === "Panel general") name = "Préstamos";
+  if (name === "Revisar Excel") {
+    await navigateModule(page, "Configuración");
+    await page.getByRole("button", { name, exact: true }).click();
+    return;
+  }
   if (page.viewportSize()!.width < 1024)
     await page.getByRole("button", { name: "Abrir menú", exact: true }).click();
-  await page.getByRole("button", { name, exact: true }).click();
+  await page.getByRole("navigation", { name: "Menú principal" }).filter({ visible: true }).getByRole("button", { name, exact: true }).click();
   await expect(
     page.getByRole("heading", { name, exact: true, level: 1 }),
   ).toBeVisible();
@@ -513,6 +518,7 @@ for (const width of [375, 430, 768, 1024, 1440, 1920])
     await page.setViewportSize({ width, height: 900 });
     await mockSupabase(page, "administrador", await dashboardFixtures());
     await login(page);
+    await page.getByText("Más indicadores de cartera", { exact: true }).click();
     await expect(page.getByText("S/ 4,000.00", { exact: true })).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Cobros de hoy y esta semana" }),
@@ -908,6 +914,7 @@ for (const width of [375, 1440])
     expect(
       await card.evaluate((el) => getComputedStyle(el).backgroundColor),
     ).toBe("rgb(33, 28, 38)");
+    await navigateModule(page, "Reportes");
     const exporter = page.getByRole("button", {
       name: "Exportar Excel completo",
       exact: true,
@@ -949,10 +956,10 @@ test("Excel completo se descarga, abre como XLSX y conserva datos, cuotas y pago
 }) => {
   await mockSupabase(page, "administrador", await dashboardFixtures());
   await login(page);
-  await navigateModule(page, "Panel general");
+  await navigateModule(page, "Reportes");
   const downloadPromise = page.waitForEvent("download");
   await page
-    .getByRole("button", { name: "Exportar Excel completo", exact: true })
+    .getByRole("button", { name: "Panel de cobranza Excel", exact: true })
     .click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("pm-creditos-general.xlsx");
@@ -968,7 +975,7 @@ test("Excel completo se descarga, abre como XLSX y conserva datos, cuotas y pago
     .selectOption("trabajador");
   const filteredPromise = page.waitForEvent("download");
   await page
-    .getByRole("button", { name: "Exportar Excel completo", exact: true })
+    .getByRole("button", { name: "Panel de cobranza Excel", exact: true })
     .click();
   const filtered = await filteredPromise;
   const other = new ExcelJS.Workbook();
@@ -1018,9 +1025,10 @@ test("periodo terminado prioriza liquidación urgente en panel, cliente, WhatsAp
     .click();
   await expect(sheet.getByLabel("Monto (S/)")).toHaveValue("870.00");
   await page.keyboard.press("Escape");
+  await navigateModule(page, "Reportes");
   const downloadPromise = page.waitForEvent("download");
   await page
-    .getByRole("button", { name: "Exportar Excel completo", exact: true })
+    .getByRole("button", { name: "Panel de cobranza Excel", exact: true })
     .click();
   const download = await downloadPromise;
   const ExcelJS = await import("exceljs");
@@ -1210,3 +1218,86 @@ for (const width of [375, 1440]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
   });
 }
+
+
+for (const width of [375, 1440]) {
+  test(`inicio operativo con cinco módulos y agenda completa a ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const fixtures = await dashboardFixtures();
+    const { limaDate, addDays } = await import("../src/lib/portal");
+    const today = limaDate();
+    fixtures.installment_balances[0].due_date = addDays(today, -2);
+    fixtures.installment_balances[3].due_date = addDays(today, 3);
+    await mockSupabase(page, "administrador", fixtures);
+    await login(page);
+    await expect(page.getByRole("heading", { name: "Inicio", exact: true })).toBeVisible();
+    await expect(page.getByText("Capital prestado", { exact: true })).not.toBeVisible();
+    await page.getByRole("button", { name: "Vencidos", exact: true }).click();
+    const agenda = page.getByRole("table", { name: "Cronograma de cobros" });
+    await expect(agenda).toContainText("Ana Socia");
+    await expect(agenda).not.toContainText("Diego Puntual");
+    await page.getByRole("button", { name: "Próximos 7 días", exact: true }).click();
+    await expect(agenda).toContainText("Diego Puntual");
+    await expect(agenda).not.toContainText("Ana Socia");
+    await page.getByRole("button", { name: "Esta semana", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Exportar Excel completo" })).toHaveCount(0);
+    if (width < 1024) await page.getByRole("button", { name: "Abrir menú" }).click();
+    const menu = page.getByRole("navigation", { name: "Menú principal" }).filter({ visible: true });
+    await expect(menu.getByRole("button")).toHaveCount(5);
+    if (width < 1024) await page.keyboard.press("Escape");
+    await page.mouse.move(0, 0);
+    await expect(page.getByRole("button", { name: "Esta semana", exact: true })).toHaveCSS("background-color", "rgb(78, 184, 82)");
+    await page.screenshot({ path: `test-results/inicio-operativo-${width}.png`, fullPage: true });
+    await navigateModule(page, "Préstamos");
+    await expect(page.getByRole("table", { name: "Panel general de préstamos" })).toBeVisible();
+    await expect(page.getByRole("table", { name: "Cartera de préstamos", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Nuevo préstamo", exact: true }).click();
+    await expect(page.getByRole("combobox", { name: "Producto de préstamo", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Cancelar", exact: true }).click();
+    await navigateModule(page, "Configuración");
+    await page.getByRole("button", { name: "Revisar Excel", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Configuración", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  });
+}
+
+test("consulta sin permisos recibe cambios Realtime y conserva controles de solo lectura", async ({ page }) => {
+  const fixtures = await dashboardFixtures();
+  const sockets: { socket: import('@playwright/test').WebSocketRoute; topic: string; ids: number[] }[] = [];
+  await page.routeWebSocket(/wss:\/\/pm-e2e\.supabase\.co\/.*/, socket => {
+    socket.onMessage(raw => {
+      const [join_ref, ref, topic, event, payload] = JSON.parse(String(raw));
+      const message = { join_ref, ref, topic, event, payload };
+      if (message.event !== "phx_join") return;
+      const changes = message.payload.config.postgres_changes.map((change: Record<string, unknown>, index: number) => ({ ...change, id: index + 1 }));
+      sockets.push({ socket, topic: message.topic, ids: changes.map((change: { id: number }) => change.id) });
+      socket.send(JSON.stringify([message.join_ref, message.ref, message.topic, "phx_reply", { status: "ok", response: { postgres_changes: changes } }]));
+    });
+  });
+  const calls = await mockSupabase(page, "jefe", fixtures);
+  await login(page);
+  await expect.poll(() => sockets.length).toBeGreaterThan(0);
+  await expect(page.getByText("S/ 2,430.00", { exact: true })).toBeVisible();
+  fixtures.loans[0].capital_pending = 71000;
+  for (const { socket, topic, ids } of sockets) socket.send(JSON.stringify([null, null, topic, "postgres_changes", { ids, data: { schema: "public", table: "loans", type: "UPDATE", commit_timestamp: new Date().toISOString(), columns: [], record: fixtures.loans[0], old_record: {}, errors: null } }]));
+  await expect(page.getByText("S/ 2,330.00", { exact: true })).toBeVisible();
+  await navigateModule(page, "Préstamos");
+  await expect(page.getByRole("button", { name: "Nuevo préstamo" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Ver detalle de Ana Socia", exact: true }).click();
+  const detail = page.getByRole("dialog");
+  await expect(detail.getByRole("button", { name: /Confirmar pago|Confirmar refinanciación|Liquidar préstamo/ })).toHaveCount(0);
+  expect(calls).toHaveLength(0);
+});
+
+test("consulta actualiza saldos cada 30 segundos aunque Realtime no esté habilitado", async ({ page }) => {
+  await page.clock.install();
+  const fixtures = await dashboardFixtures();
+  const calls = await mockSupabase(page, "jefe", fixtures);
+  await login(page);
+  await expect(page.getByText("S/ 2,430.00", { exact: true })).toBeVisible();
+  fixtures.loans[0].capital_pending = 61000;
+  await page.clock.fastForward(31000);
+  await page.clock.runFor(500);
+  await expect(page.getByText("S/ 2,230.00", { exact: true })).toBeVisible();
+  expect(calls).toHaveLength(0);
+});

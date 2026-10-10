@@ -102,3 +102,7 @@ Panel general marca en morado «Vence hoy» para cuotas vigentes con saldo pendi
 El menú omite Cobros semanales e Historial de pagos. El registro y la consulta de pagos están en el detalle del préstamo, accesible desde Panel general o Préstamos; la agenda sigue en Dashboard y las exportaciones en Reportes. Estos cambios de interfaz no requieren SQL adicional.
 
 El botón luna/sol de la barra superior y del acceso alterna modo día y noche con fondos suaves. La elección se conserva en este navegador. Configuración permite volver a seguir el dispositivo. No requiere SQL adicional.
+
+### Consulta y actualización automática
+
+El acceso `jefe` permite visualizar sin realizar operaciones de escritura. Para crear una cuenta y habilitar eventos de Supabase Realtime, sigue [Acceso de consulta](docs/ACCESO-CONSULTA.md). Sin eventos, la interfaz conserva un respaldo de actualización cada 30 segundos y al recuperar el foco. Estos pasos de administración no se ejecutan desde el navegador de PM Créditos.

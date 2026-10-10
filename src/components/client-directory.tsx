@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { ChevronDown, MessageCircle, Pencil, RefreshCw } from "lucide-react";
+import { useLiveRevision } from "@/hooks/use-live-revision";
 import { getSupabase } from "@/lib/supabase";
 import {
   clientAccount,
@@ -36,6 +37,7 @@ export default function ClientDirectory({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
+  const liveRevision = useLiveRevision();
   const [today, setToday] = useState(limaDate);
   useEffect(() => {
     const timer = setInterval(() => setToday(limaDate()), 60000);
@@ -81,7 +83,7 @@ export default function ClientDirectory({
     return () => {
       active = false;
     };
-  }, [revision]);
+  }, [revision, liveRevision]);
   return (
     <div className="space-y-3">
       {error && <Notice error>{error}</Notice>}

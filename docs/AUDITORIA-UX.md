@@ -42,3 +42,19 @@ Los cambios se preparan en `mejora/experiencia-navegacion`. No se publican en `m
 - Playwright con Supabase simulado: 30 aprobadas; navegación a 375, 430, 768, 1024, 1440 y 1920 px, roles, sesión, clientes, cobros, refinanciación, WhatsApp y XLSX.
 - Capturas revisadas de la navegación reorganizada en escritorio y móvil; modos día y noche. Se generan en `test-results/navigation-after-*.png` (artefactos locales, no versionados).
 - No se ejecutaron operaciones contra Supabase de producción ni se validó un despliegue remoto.
+
+## Segunda revisión: cinco módulos y foco en cobranza
+
+Problemas de prioridad alta: ocho indicadores iniciales compiten con la agenda; tres listas de próximos cobros repiten cuotas; la cartera de Préstamos duplica el Panel general; las exportaciones están repartidas entre módulos. La navegación tenía siete entradas después de la primera revisión.
+
+Implementación: cinco módulos (Inicio, Clientes, Préstamos, Reportes, Configuración); cartera de seis columnas y nuevo préstamo reunidos; refinanciaciones internas; revisión Excel interna a Configuración. Cuatro indicadores principales y otros cuatro desplegables; una sola agenda con cuatro vistas. Todas las exportaciones siguen disponibles desde Reportes, incluido el resumen filtrado. Mantener la revisión de condiciones de refinanciación y los informes por semana/mes conserva sus diferencias operativas. No se eliminan datos ni funcionalidades por rol.
+
+La auditoría confirma que la lectura financiera ya pagina y carga tablas en paralelo; los cambios de vista no vuelven a solicitar esos datos. Se reemplazan búsquedas lineales repetidas por índices memorizados. Se mantiene la descarga XLSX diferida y no se añaden dependencias.
+
+El archivo de requisitos recibido termina cortado en «Fór…». Se aplica el alcance íntegro disponible, manteniendo las restricciones previas sobre base de datos, fórmulas, API, permisos y publicación sin producción.
+
+## Validación de la segunda revisión y acceso de consulta
+
+Compilación, ESLint y TypeScript aprobados; 46 pruebas de lógica aprobadas. Se ejecutaron los 34 casos de Playwright: 33 pasaron en el conjunto completo; el caso nuevo de Realtime requirió corregir el simulador al protocolo Phoenix 2.0 utilizado por la dependencia instalada. Los dos casos de sincronización se repitieron y pasaron, cubriendo los 34 casos. La prueba comprueba cambio de saldo mediante eventos, respaldo de 30 segundos y ausencia de solicitudes de escritura para consulta. La inspección visual confirma el Inicio compacto y las cinco entradas de navegación.
+
+Se reutiliza el rol `jefe`; se muestra como Solo lectura. Crear la cuenta y habilitar la publicación Realtime requieren al responsable del proyecto, con instrucciones concretas en `docs/ACCESO-CONSULTA.md`. No existe una URL de vista previa disponible y no hay credenciales administrativas de Vercel o Supabase en este entorno. Se publica únicamente la rama de revisión, sin modificar `main` ni producción.

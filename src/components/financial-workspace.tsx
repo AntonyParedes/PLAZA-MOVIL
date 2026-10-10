@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useLiveRevision } from "@/hooks/use-live-revision";
 import { getSupabase } from "@/lib/supabase";
 import {
   cents,
@@ -29,14 +30,10 @@ import {
   Download,
   Plus,
   MessageCircle,
-  Wallet,
   CircleDollarSign,
-  TrendingUp,
   Banknote,
   CalendarDays,
   Clock3,
-  ArrowUpRight,
-  CheckCircle2,
   ChevronRight,
 } from "lucide-react";
 import {
@@ -81,9 +78,10 @@ export default function FinancialWorkspace({
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [revision, setRevision] = useState(0);
+  const liveRevision = useLiveRevision();
   const tab = view;
   const [success, setSuccess] = useState("");
-  const [agendaRange, setAgendaRange] = useState<"hoy" | "semana">("hoy");
+  const [agendaRange, setAgendaRange] = useState<"hoy" | "semana" | "vencidos" | "proximos">("hoy");
   const [stateFilter, setStateFilter] = useState("todos");
   const [memberFilter, setMemberFilter] = useState("todos");
   const [showNew, setShowNew] = useState(false);
@@ -143,11 +141,13 @@ export default function FinancialWorkspace({
     return () => {
       active = false;
     };
-  }, [revision]);
-  const customer = (loan: Loan) => clients.find((c) => c.id === loan.client_id);
-  const current = (loanId: string) =>
-    data.periods.find((p) => p.loan_id === loanId && p.is_current);
-  const loanById = (id: string) => data.loans.find((l) => l.id === id);
+  }, [revision, liveRevision]);
+  const clientsById = useMemo(() => new Map(clients.map(client => [client.id, client])), [clients]);
+  const loansById = useMemo(() => new Map(data.loans.map(loan => [loan.id, loan])), [data.loans]);
+  const currentPeriodsByLoan = useMemo(() => new Map(data.periods.filter(period => period.is_current).map(period => [period.loan_id, period])), [data.periods]);
+  const customer = (loan: Loan) => clientsById.get(loan.client_id);
+  const current = (loanId: string) => currentPeriodsByLoan.get(loanId);
+  const loanById = (id: string) => loansById.get(id);
   const matches = (loan: Loan) =>
     (!clientFocus || loan.client_id === clientFocus) &&
     `${customer(loan)?.full_name ?? ""} ${customer(loan)?.dni ?? ""} ${customer(loan)?.stand_code ?? ""}`
@@ -408,7 +408,11 @@ export default function FinancialWorkspace({
     .filter((i) =>
       agendaRange === "hoy"
         ? i.due_date === today
-        : i.due_date >= week.start && i.due_date <= week.end,
+        : agendaRange === "semana"
+          ? i.due_date >= week.start && i.due_date <= week.end
+          : agendaRange === "vencidos"
+            ? i.pending_cents > 0 && i.due_date < today
+            : i.pending_cents > 0 && i.due_date > today && i.due_date <= addDays(today, 7),
     )
     .sort((a, b) => a.due_date.localeCompare(b.due_date));
   const refinanced = data.periods
@@ -543,6 +547,42 @@ export default function FinancialWorkspace({
       />
     );
   }
+  function portfolioFilters() {
+    return (
+            <div className="flex flex-wrap gap-3">
+              <label>
+                Condición
+                <select
+                  aria-label="Filtrar condición"
+                  value={memberFilter}
+                  onChange={(e) => setMemberFilter(e.target.value)}
+                >
+                  <option value="todos">Todos</option>
+                  <option value="socio">Socios</option>
+                  <option value="trabajador">Trabajadores</option>
+                </select>
+              </label>
+              <label>
+                Estado
+                <select
+                  aria-label="Filtrar estado"
+                  value={stateFilter}
+                  onChange={(e) => setStateFilter(e.target.value)}
+                >
+                  <option value="todos">Todos</option>
+                  <option value="Liquidación urgente">
+                    Liquidación urgente
+                  </option>
+                  <option value="Puntual">Puntuales</option>
+                  <option value="Atrasado">Atrasados (1–6 días)</option>
+                  <option value="En mora">En mora (7 días o más)</option>
+                  <option value="Liquidado">Liquidados</option>
+                  <option value="refinanciado">Refinanciados</option>
+                </select>
+              </label>
+            </div>
+    );
+  }
   function exportGeneral() {
     downloadCSV("panel-general.csv", [
       generalExportHeaders,
@@ -634,13 +674,13 @@ export default function FinancialWorkspace({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button
+          {tab === "reportes" && <Button
             disabled={exporting || loading}
-            onClick={() => exportExcel(tab === "general" ? "general" : "todos")}
+            onClick={() => exportExcel("todos")}
           >
             <Download size={16} />
             {exporting ? "Generando Excel…" : "Exportar Excel completo"}
-          </Button>{" "}
+          </Button>}
           <Button
             variant="outline"
             onClick={() => setRevision((r) => r + 1)}
@@ -657,305 +697,7 @@ export default function FinancialWorkspace({
       </Card>
       {tab === "general" && (
         <>
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div className="flex flex-wrap gap-3">
-              <label>
-                Condición
-                <select
-                  aria-label="Filtrar condición"
-                  value={memberFilter}
-                  onChange={(e) => setMemberFilter(e.target.value)}
-                >
-                  <option value="todos">Todos</option>
-                  <option value="socio">Socios</option>
-                  <option value="trabajador">Trabajadores</option>
-                </select>
-              </label>
-              <label>
-                Estado
-                <select
-                  aria-label="Filtrar estado"
-                  value={stateFilter}
-                  onChange={(e) => setStateFilter(e.target.value)}
-                >
-                  <option value="todos">Todos</option>
-                  <option value="Liquidación urgente">
-                    Liquidación urgente
-                  </option>
-                  <option value="Puntual">Puntuales</option>
-                  <option value="Atrasado">Atrasados (1–6 días)</option>
-                  <option value="En mora">En mora (7 días o más)</option>
-                  <option value="Liquidado">Liquidados</option>
-                  <option value="refinanciado">Refinanciados</option>
-                </select>
-              </label>
-            </div>
-            <Button variant="outline" onClick={exportGeneral}>
-              <Download size={16} /> Exportar panel CSV
-            </Button>
-          </div>
-          <p className="text-xs text-slate-500">
-            {generalEntries.length} préstamos · Saldo: capital e intereses
-            pendientes. Primero aparecen los atrasados. Pulsa un nombre para ver
-            detalles y enviar un recordatorio.
-          </p>
-          <DataTable
-            caption="Panel general de préstamos"
-            headers={[
-              "Prestatario",
-              "Fecha del préstamo",
-              "Día de pago",
-              "Saldo",
-              "Cuota semanal",
-              "Estado",
-            ]}
-            keys={generalEntries.map((e) => e.loan.id)}
-            rowClassNames={generalEntries.map((e) =>
-              dueToday(e.loan.id) ? "payment-due-today" : "",
-            )}
-            rows={generalEntries.map(({ loan, client, status }) => {
-              const paymentDate =
-                status.nextDate ??
-                data.installments.find(
-                  (i) => i.loan_id === loan.id && i.is_current,
-                )?.due_date;
-              return [
-                <button
-                  key="name"
-                  type="button"
-                  aria-label={`Ver detalle de ${client?.full_name ?? "prestatario"}`}
-                  onClick={() => setSelected(loan.id)}
-                  className="min-h-11 rounded-lg border-l-4 px-3 text-left font-semibold text-slate-900 hover:bg-slate-50"
-                  style={{
-                    borderColor: ["En mora", "Liquidación urgente"].includes(
-                      status.state,
-                    )
-                      ? "var(--danger-text)"
-                      : status.state === "Atrasado"
-                        ? "var(--warning-text)"
-                        : "var(--success-text)",
-                  }}
-                >
-                  {client?.full_name ?? "Cliente no disponible"}
-                </button>,
-                status.startDate ? dateLabel(status.startDate) : "—",
-                <div key="day" className="space-y-2">
-                  <span className="capitalize">
-                    {paymentDate ? weekdayLabel(paymentDate) : "—"}
-                  </span>
-                  {dueToday(loan.id) && (
-                    <span className="block">
-                      <span className="inline-flex rounded-full bg-[var(--accent-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-text)]">
-                        Vence hoy
-                      </span>
-                    </span>
-                  )}
-                </div>,
-                <span key="balance" className="font-semibold tabular-nums">
-                  {money(status.balance)}
-                </span>,
-                money(status.weeklyCents),
-                statusBadge(loan),
-              ];
-            })}
-            emptyTitle="Sin préstamos para estos filtros"
-            emptyDescription="Ajusta la búsqueda o registra un préstamo desde el módulo Préstamos."
-          />
-        </>
-      )}
-      {tab === "resumen" && (
-        <>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Kpi
-              label="Capital prestado"
-              value={money(totals.lent)}
-              note="Capital original desembolsado"
-              icon={Wallet}
-            />
-            <Kpi
-              label="Capital pendiente"
-              value={money(totals.capital)}
-              note="Capital por recuperar"
-              tone="purple"
-              icon={CircleDollarSign}
-            />
-            <Kpi
-              label="Total cobrado"
-              value={money(totals.paid)}
-              note="Capital e intereses recibidos"
-              icon={Banknote}
-              tone="green"
-            />
-            <Kpi
-              label="Intereses cobrados"
-              value={money(totals.interest)}
-              note="Interés recibido en pagos"
-              icon={TrendingUp}
-              tone="green"
-            />
-            <Kpi
-              label="Cobros del día"
-              value={money(
-                payments
-                  .filter((p) => p.paid_on === today)
-                  .reduce((n, p) => n + BigInt(p.amount_cents), 0n),
-              )}
-              note="Pagos registrados hoy"
-              icon={CalendarDays}
-              tone="green"
-            />
-            <Kpi
-              label="Cuotas vencidas"
-              value={installments.filter((i) => i.due_date < today).length}
-              note="Cuotas con saldo pendiente"
-              icon={Clock3}
-              tone="red"
-            />
-            <Kpi
-              label="Préstamos activos"
-              value={loans.filter((l) => l.status === "activo").length}
-              note="Créditos vigentes en cartera"
-              icon={ArrowUpRight}
-            />
-            <Kpi
-              label="Préstamos liquidados"
-              value={loans.filter((l) => l.status === "liquidado").length}
-              note="Créditos pagados en su totalidad"
-              icon={CheckCircle2}
-              tone="green"
-            />
-          </div>
-          <div>
-            <SectionHeading
-              title="Cobros de hoy y esta semana"
-              description="Identifica las cuotas pagadas, pendientes y vencidas."
-              action={
-                <div className="flex gap-2">
-                  <Button
-                    variant={agendaRange === "hoy" ? "default" : "outline"}
-                    onClick={() => setAgendaRange("hoy")}
-                  >
-                    Hoy
-                  </Button>
-                  <Button
-                    variant={agendaRange === "semana" ? "default" : "outline"}
-                    onClick={() => setAgendaRange("semana")}
-                  >
-                    Esta semana
-                  </Button>
-                </div>
-              }
-            />
-            {quotaTable(agenda, true)}
-          </div>
-          <div className="grid gap-5 lg:grid-cols-3">
-            {[
-              [
-                "Vencen mañana",
-                installments.filter((i) => i.due_date === addDays(today, 1)),
-              ],
-              [
-                "Pendientes de esta semana",
-                installments.filter(
-                  (i) => i.due_date >= week.start && i.due_date <= week.end,
-                ),
-              ],
-              [
-                "Próximos vencimientos",
-                installments.filter(
-                  (i) => i.due_date > today && i.due_date <= addDays(today, 7),
-                ),
-              ],
-            ].map(([title, rows]) => (
-              <Card key={title as string}>
-                <SectionHeading title={title as string} />
-                {(rows as Installment[]).length === 0 ? (
-                  <p className="text-sm text-slate-500">
-                    Sin cuotas pendientes.
-                  </p>
-                ) : (
-                  (rows as Installment[]).map((i) => (
-                    <button
-                      key={i.id}
-                      onClick={() => setSelected(i.loan_id)}
-                      className="mb-2 flex min-h-14 w-full items-center justify-between gap-3 rounded-lg border-b border-slate-100 py-3 text-left hover:bg-slate-50"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium">
-                          {customer(loanById(i.loan_id)!)?.full_name}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {dateLabel(i.due_date)}
-                        </p>
-                      </div>
-                      <span className="shrink-0 text-sm font-semibold">
-                        {money(i.pending_cents)}
-                      </span>
-                    </button>
-                  ))
-                )}
-              </Card>
-            ))}
-          </div>
-          <Card>
-            <SectionHeading
-              title="Préstamos próximos a finalizar"
-              description="Periodos que terminan en los próximos siete días."
-            />
-            {data.periods
-              .filter(
-                (p) =>
-                  p.is_current &&
-                  p.end_date >= today &&
-                  p.end_date <= addDays(today, 7) &&
-                  loanById(p.loan_id)?.status === "activo" &&
-                  matches(loanById(p.loan_id)!),
-              )
-              .map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => setSelected(p.loan_id)}
-                  className="flex min-h-11 w-full items-center justify-between gap-4 border-b border-slate-100 py-3 text-left text-sm"
-                >
-                  <span>{customer(loanById(p.loan_id)!)?.full_name}</span>
-                  <span className="text-slate-500">
-                    {dateLabel(p.end_date)}
-                  </span>
-                </button>
-              ))}
-            {!data.periods.some(
-              (p) =>
-                p.is_current &&
-                p.end_date >= today &&
-                p.end_date <= addDays(today, 7) &&
-                loanById(p.loan_id)?.status === "activo" &&
-                matches(loanById(p.loan_id)!),
-            ) && (
-              <p className="text-sm text-slate-500">
-                No hay periodos por finalizar en este rango.
-              </p>
-            )}
-          </Card>
-        </>
-      )}
-      {tab === "prestamos" && (
-        <>
-          <SectionHeading
-            title="Cartera de préstamos"
-            description={`${loans.length} préstamos encontrados`}
-            action={
-              role === "administrador" && (
-                <Button
-                  onClick={() => {
-                    setShowNew(!showNew);
-                    setPreview(null);
-                  }}
-                >
-                  <Plus size={16} /> Nuevo préstamo
-                </Button>
-              )
-            }
-          />
+          <SectionHeading title="Cartera de préstamos" description="Saldo, cuota semanal y estado de cada prestatario." action={role === "administrador" && <Button onClick={() => { setShowNew(!showNew); setPreview(null); }}><Plus size={16} /> Nuevo préstamo</Button>} />
           {showNew && role === "administrador" && (
             <Card>
               <SectionHeading
@@ -1057,35 +799,183 @@ export default function FinancialWorkspace({
               )}
             </Card>
           )}
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            {portfolioFilters()}
+
+          </div>
+          <p className="text-xs text-slate-500">
+            {generalEntries.length} préstamos · Saldo: capital e intereses
+            pendientes. Primero aparecen los atrasados. Pulsa un nombre para ver
+            detalles y enviar un recordatorio.
+          </p>
           <DataTable
-            caption="Cartera de préstamos"
+            caption="Panel general de préstamos"
             headers={[
-              "Cliente",
-              "Original",
-              "Capital pendiente",
-              "Interés pendiente",
+              "Prestatario",
+              "Fecha del préstamo",
+              "Día de pago",
+              "Saldo",
+              "Cuota semanal",
               "Estado",
-              "Detalle",
             ]}
-            keys={loans.map((l) => l.id)}
-            rows={loans.map((l) => [
-              customerCell(l),
-              money(l.original_capital),
-              money(l.capital_pending),
-              money(l.interest_pending),
-              <PaymentBadge key="status" status={l.status} />,
-              <Button
-                key="open"
-                variant="outline"
-                onClick={() => setSelected(l.id)}
-              >
-                Abrir
-                <ChevronRight size={14} />
-              </Button>,
-            ])}
+            keys={generalEntries.map((e) => e.loan.id)}
+            rowClassNames={generalEntries.map((e) =>
+              dueToday(e.loan.id) ? "payment-due-today" : "",
+            )}
+            rows={generalEntries.map(({ loan, client, status }) => {
+              const paymentDate =
+                status.nextDate ??
+                data.installments.find(
+                  (i) => i.loan_id === loan.id && i.is_current,
+                )?.due_date;
+              return [
+                <button
+                  key="name"
+                  type="button"
+                  aria-label={`Ver detalle de ${client?.full_name ?? "prestatario"}`}
+                  onClick={() => setSelected(loan.id)}
+                  className="min-h-11 rounded-lg border-l-4 px-3 text-left font-semibold text-slate-900 hover:bg-slate-50"
+                  style={{
+                    borderColor: ["En mora", "Liquidación urgente"].includes(
+                      status.state,
+                    )
+                      ? "var(--danger-text)"
+                      : status.state === "Atrasado"
+                        ? "var(--warning-text)"
+                        : "var(--success-text)",
+                  }}
+                >
+                  {client?.full_name ?? "Cliente no disponible"}
+                </button>,
+                status.startDate ? dateLabel(status.startDate) : "—",
+                <div key="day" className="space-y-2">
+                  <span className="capitalize">
+                    {paymentDate ? weekdayLabel(paymentDate) : "—"}
+                  </span>
+                  {dueToday(loan.id) && (
+                    <span className="block">
+                      <span className="inline-flex rounded-full bg-[var(--accent-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--accent-text)]">
+                        Vence hoy
+                      </span>
+                    </span>
+                  )}
+                </div>,
+                <span key="balance" className="font-semibold tabular-nums">
+                  {money(status.balance)}
+                </span>,
+                money(status.weeklyCents),
+                statusBadge(loan),
+              ];
+            })}
             emptyTitle="Sin préstamos para estos filtros"
-            emptyDescription="Selecciona Nuevo préstamo para preparar un desembolso o cambia la búsqueda."
+            emptyDescription="Ajusta la búsqueda o registra un préstamo desde el módulo Préstamos."
           />
+        </>
+      )}
+      {tab === "resumen" && (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Kpi
+              label="Capital pendiente"
+              value={money(totals.capital)}
+              note="Capital por recuperar"
+              tone="purple"
+              icon={CircleDollarSign}
+            />
+            <Kpi
+              label="Total cobrado"
+              value={money(totals.paid)}
+              note="Capital e intereses recibidos"
+              icon={Banknote}
+              tone="green"
+            />
+            <Kpi
+              label="Cobros del día"
+              value={money(
+                payments
+                  .filter((p) => p.paid_on === today)
+                  .reduce((n, p) => n + BigInt(p.amount_cents), 0n),
+              )}
+              note="Pagos registrados hoy"
+              icon={CalendarDays}
+              tone="green"
+            />
+            <Kpi
+              label="Cuotas vencidas"
+              value={installments.filter((i) => i.due_date < today).length}
+              note="Cuotas con saldo pendiente"
+              icon={Clock3}
+              tone="red"
+            />
+          </div>
+          <div>
+            <SectionHeading
+              title="Cobros de hoy y esta semana"
+              description="Identifica las cuotas pagadas, pendientes y vencidas."
+              action={
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant={agendaRange === "hoy" ? "default" : "outline"}
+                    onClick={() => setAgendaRange("hoy")}
+                  >
+                    Hoy
+                  </Button>
+                  <Button
+                    variant={agendaRange === "semana" ? "default" : "outline"}
+                    onClick={() => setAgendaRange("semana")}
+                  >
+                    Esta semana
+                  </Button>
+                  <Button variant={agendaRange === "vencidos" ? "default" : "outline"} onClick={() => setAgendaRange("vencidos")}>Vencidos</Button>
+                  <Button variant={agendaRange === "proximos" ? "default" : "outline"} onClick={() => setAgendaRange("proximos")}>Próximos 7 días</Button>
+                </div>
+              }
+            />
+            {quotaTable(agenda, true)}
+          </div>
+          <details className="surface p-4">
+            <summary className="min-h-11 font-semibold text-sm">Más indicadores de cartera</summary>
+            <dl className="grid gap-4 pt-3 sm:grid-cols-2 lg:grid-cols-4">
+              {[["Capital prestado", money(totals.lent)], ["Intereses cobrados", money(totals.interest)], ["Préstamos activos", loans.filter(l => l.status === "activo").length], ["Préstamos liquidados", loans.filter(l => l.status === "liquidado").length]].map(([label, value]) => <div key={label}><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 font-semibold tabular-nums">{value}</dd></div>)}
+            </dl>
+          </details>
+          <details className="surface p-4">
+            <summary className="min-h-11 text-sm font-semibold">Préstamos próximos a finalizar</summary>
+            <p className="mb-3 text-xs text-slate-500">Periodos que terminan en los próximos siete días.</p>
+            {data.periods
+              .filter(
+                (p) =>
+                  p.is_current &&
+                  p.end_date >= today &&
+                  p.end_date <= addDays(today, 7) &&
+                  loanById(p.loan_id)?.status === "activo" &&
+                  matches(loanById(p.loan_id)!),
+              )
+              .map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setSelected(p.loan_id)}
+                  className="flex min-h-11 w-full items-center justify-between gap-4 border-b border-slate-100 py-3 text-left text-sm"
+                >
+                  <span>{customer(loanById(p.loan_id)!)?.full_name}</span>
+                  <span className="text-slate-500">
+                    {dateLabel(p.end_date)}
+                  </span>
+                </button>
+              ))}
+            {!data.periods.some(
+              (p) =>
+                p.is_current &&
+                p.end_date >= today &&
+                p.end_date <= addDays(today, 7) &&
+                loanById(p.loan_id)?.status === "activo" &&
+                matches(loanById(p.loan_id)!),
+            ) && (
+              <p className="text-sm text-slate-500">
+                No hay periodos por finalizar en este rango.
+              </p>
+            )}
+          </details>
         </>
       )}
       {tab === "refinanciaciones" && (
@@ -1133,12 +1023,7 @@ export default function FinancialWorkspace({
           <SectionHeading
             title="Historial de refinanciaciones"
             action={
-              <Button
-                variant="outline"
-                onClick={() => exportReport("refinanciaciones")}
-              >
-                <Download size={16} /> Refinanciaciones CSV
-              </Button>
+              <span className="text-xs text-slate-500">Exportación disponible en Reportes</span>
             }
           />
           <DataTable
@@ -1175,6 +1060,10 @@ export default function FinancialWorkspace({
       )}
       {tab === "reportes" && (
         <>
+          <Card>
+            <SectionHeading title="Panel de cobranza" description="Exporta el resumen de prestatarios, saldos, cuotas y estados." action={<div className="flex flex-wrap gap-2"><Button disabled={loading || exporting} onClick={() => exportExcel("general")}><Download size={16} /> Panel de cobranza Excel</Button><Button variant="outline" onClick={exportGeneral}><Download size={16} /> Exportar panel CSV</Button></div>} />
+            {portfolioFilters()}
+          </Card>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {[
               [

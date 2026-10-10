@@ -20,6 +20,7 @@ import {
   SectionHeading,
   Sheet,
 } from "@/components/ui/dashboard";
+import { useLiveRevision } from "@/hooks/use-live-revision";
 import { getSupabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import FinancialWorkspace from "@/components/financial-workspace";
@@ -57,6 +58,7 @@ export default function Workspace() {
   const [message, setMessage] = useState("");
   const [clients, setClients] = useState<Client[]>([]);
   const [search, setSearch] = useState("");
+  const liveRevision = useLiveRevision(Boolean(userId));
   const [section, setSection] = useState<Section>("dashboard");
   const [memberFilter, setMemberFilter] = useState("todos");
   const [showForm, setShowForm] = useState(false);
@@ -102,6 +104,7 @@ export default function Workspace() {
         profile.error ||
         !["administrador", "jefe"].includes(profile.data?.role)
       ) {
+        setRole(null);
         setMessage(
           "Tu usuario no tiene un rol autorizado. Solicita al responsable que te asigne un perfil.",
         );
@@ -133,7 +136,7 @@ export default function Workspace() {
     return () => {
       active = false;
     };
-  }, [userId]);
+  }, [userId, liveRevision]);
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -416,7 +419,9 @@ export default function Workspace() {
             clients={clients}
             role={role}
             view={
-              section === "dashboard"
+              section === "prestamos"
+                ? "general"
+                : section === "dashboard"
                 ? "resumen"
                 : section === "importar"
                   ? "general"

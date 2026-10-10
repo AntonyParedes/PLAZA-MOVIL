@@ -8,8 +8,6 @@ import {
   Wallet,
   ChartNoAxesCombined,
   Settings,
-  TableProperties,
-  FileSpreadsheet,
   PanelLeftClose,
   PanelLeftOpen,
   Menu,
@@ -32,13 +30,11 @@ export type Section =
   | "configuracion"
   | "importar";
 const navigation = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "general", label: "Panel general", icon: TableProperties },
+  { id: "dashboard", label: "Inicio", icon: LayoutDashboard },
   { id: "clientes", label: "Clientes", icon: Users },
   { id: "prestamos", label: "Préstamos", icon: Wallet },
   { id: "reportes", label: "Reportes", icon: ChartNoAxesCombined },
   { id: "configuracion", label: "Configuración", icon: Settings },
-  { id: "importar", label: "Revisar Excel", icon: FileSpreadsheet },
 ] as const;
 export function Brand({ compact = false }: { compact?: boolean }) {
   return (
@@ -76,7 +72,7 @@ export default function AppShell({
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [section]);
   const title =
-    navigation.find((item) => item.id === (section === "refinanciaciones" ? "prestamos" : section))?.label ?? "Dashboard";
+    navigation.find((item) => item.id === (["general", "refinanciaciones"].includes(section) ? "prestamos" : section === "importar" ? "configuracion" : section))?.label ?? "Dashboard";
   function menu(compact: boolean) {
     return (
       <>
@@ -88,9 +84,6 @@ export default function AppShell({
           className="flex flex-1 flex-col gap-1 px-3"
         >
           {navigation
-            .filter(
-              (item) => item.id !== "importar" || role === "administrador",
-            )
             .map((item) => (
               <div key={item.id}>
               {!compact && ["dashboard", "reportes", "configuracion"].includes(item.id) && (
@@ -98,14 +91,14 @@ export default function AppShell({
               )}
               <button
                 title={compact ? item.label : undefined}
-                aria-current={(section === item.id || (item.id === "prestamos" && section === "refinanciaciones")) ? "page" : undefined}
+                aria-current={(section === item.id || (item.id === "prestamos" && ["general", "refinanciaciones"].includes(section)) || (item.id === "configuracion" && section === "importar")) ? "page" : undefined}
                 onClick={() => {
                   onNavigate(item.id);
                   setMobileOpen(false);
                 }}
                 className={cn(
                   "flex w-full min-h-11 items-center gap-3 rounded-xl px-3 py-3 text-left text-[13px] font-medium transition-colors",
-                  (section === item.id || (item.id === "prestamos" && section === "refinanciaciones"))
+                  (section === item.id || (item.id === "prestamos" && ["general", "refinanciaciones"].includes(section)) || (item.id === "configuracion" && section === "importar"))
                     ? "bg-blue-600/20 text-blue-200 ring-1 ring-blue-400/20"
                     : "text-slate-300 hover:bg-white/5 hover:text-white",
                   compact && "justify-center px-2",
@@ -236,7 +229,7 @@ export default function AppShell({
                       Mi cuenta
                     </span>
                     <span className="block text-[11px] capitalize text-slate-500">
-                      {role}
+                      {role === "jefe" ? "Solo lectura" : role}
                     </span>
                   </span>
                   <ChevronDown size={14} className="text-slate-400" />
@@ -276,8 +269,14 @@ export default function AppShell({
         >
           {["prestamos", "refinanciaciones"].includes(section) && (
             <nav aria-label="Operaciones de préstamos" className="section-switch">
-              <button aria-current={section === "prestamos" ? "page" : undefined} onClick={() => onNavigate("prestamos")}>Préstamos</button>
+              <button aria-current={section === "prestamos" ? "page" : undefined} onClick={() => onNavigate("prestamos")}>Cartera</button>
               <button aria-current={section === "refinanciaciones" ? "page" : undefined} onClick={() => onNavigate("refinanciaciones")}>Refinanciaciones</button>
+            </nav>
+          )}
+          {["configuracion", "importar"].includes(section) && role === "administrador" && (
+            <nav aria-label="Herramientas de configuración" className="section-switch">
+              <button aria-current={section === "configuracion" ? "page" : undefined} onClick={() => onNavigate("configuracion")}>Preferencias</button>
+              <button aria-current={section === "importar" ? "page" : undefined} onClick={() => onNavigate("importar")}>Revisar Excel</button>
             </nav>
           )}
           {children}
