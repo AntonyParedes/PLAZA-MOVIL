@@ -8,6 +8,7 @@ import {
   formatPEN,
   loanProducts,
   scheduleLoan,
+  requireRefinancingPrerequisites,
 } from "@/lib/finance";
 import {
   addDays,
@@ -148,6 +149,19 @@ export default function FinancialWorkspace({
   const customer = (loan: Loan) => clientsById.get(loan.client_id);
   const current = (loanId: string) => currentPeriodsByLoan.get(loanId);
   const loanById = (id: string) => loansById.get(id);
+  function refinancingBlock(loan: Loan) {
+    const period = current(loan.id);
+    if (loan.status !== "activo" || loan.capital_pending <= 0) return "Préstamo liquidado";
+    if (!period) return "No se encontró el periodo vigente";
+    try {
+      requireRefinancingPrerequisites(loan.interest_pending, period.end_date, today);
+      if (!period.interest_settled_on) return "Falta confirmar el pago completo del interés";
+      return "";
+    } catch (error) {
+      return error instanceof Error ? error.message : "No se pudo verificar la refinanciación";
+    }
+  }
+
   const matches = (loan: Loan) =>
     (!clientFocus || loan.client_id === clientFocus) &&
     `${customer(loan)?.full_name ?? ""} ${customer(loan)?.dni ?? ""} ${customer(loan)?.stand_code ?? ""}`
@@ -989,22 +1003,14 @@ export default function FinancialWorkspace({
             rows={loans
               .filter((l) => l.status === "activo")
               .map((l) => {
-                const overdue = data.installments.some(
-                  (i) =>
-                    i.loan_id === l.id &&
-                    i.is_current &&
-                    i.due_date < today &&
-                    i.pending_cents > 0,
-                );
+                const block = refinancingBlock(l);
                 return [
                   customerCell(l),
                   money(BigInt(l.capital_pending) + BigInt(l.interest_pending)),
-                  l.interest_pending > 0 ? (
-                    <Badge tone="warning">Interés pendiente</Badge>
-                  ) : overdue ? (
-                    <Badge tone="danger">Cuotas vencidas</Badge>
+                  block ? (
+                    <Badge tone="warning">{l.interest_pending > 0 ? "Interés pendiente" : block.includes("periodo aún") ? "Periodo vigente" : "No disponible"}</Badge>
                   ) : (
-                    <Badge tone="success">Revisar refinanciación</Badge>
+                    <Badge tone="success">Puede refinanciar</Badge>
                   ),
                   <Button
                     key="open"
@@ -1341,48 +1347,28 @@ export default function FinancialWorkspace({
                   <div className="mt-4 space-y-4 text-sm leading-6">
                     <p>
                       Misma tasa mensual {selectedLoan.rate_basis_points / 100}{" "}
-                      % sobre el capital original. El nuevo periodo comienza al
-                      terminar de pagar el interés anterior.
+                      % sobre el capital original. El nuevo periodo comienza el
+                      día siguiente al vencimiento del periodo anterior y dura cuatro semanas.
                     </p>
                     <p>
                       Inicio:{" "}
-                      {selectedPeriod?.interest_settled_on
-                        ? dateLabel(selectedPeriod.interest_settled_on)
-                        : "Interés aún pendiente"}
+                      {selectedPeriod
+                        ? dateLabel(addDays(selectedPeriod.end_date, 1))
+                        : "Periodo no disponible"}
+                      {selectedPeriod && <> · Fin: {dateLabel(addDays(selectedPeriod.end_date, 29))}</>}
                     </p>
-                    {selectedLoan.interest_pending !== 0 ? (
+                    {refinancingBlock(selectedLoan) && (
                       <p className="rounded-lg bg-amber-50 p-3 text-amber-800">
-                        Completa el pago del interés para solicitar la
-                        refinanciación.
+                        {refinancingBlock(selectedLoan)}
                       </p>
-                    ) : data.installments.some(
-                        (i) =>
-                          i.loan_id === selected &&
-                          i.is_current &&
-                          i.due_date < today &&
-                          i.pending_cents > 0,
-                      ) ? (
-                      <p className="rounded-lg bg-red-50 p-3 text-red-700">
-                        Hay cuotas vencidas pendientes de pago.
-                      </p>
-                    ) : null}
+                    )}
                     <Button
-                      disabled={
-                        busy ||
-                        selectedLoan.interest_pending !== 0 ||
-                        data.installments.some(
-                          (i) =>
-                            i.loan_id === selected &&
-                            i.is_current &&
-                            i.due_date < today &&
-                            i.pending_cents > 0,
-                        )
-                      }
+                      disabled={busy || Boolean(refinancingBlock(selectedLoan))}
                       onClick={() =>
                         mutate(
                           "refinance_loan",
                           { p_loan: selected },
-                          "¿Refinanciar un mes con la misma tasa sobre el capital original? Se conservará el historial previo.",
+                          `¿Refinanciar del ${selectedPeriod ? dateLabel(addDays(selectedPeriod.end_date, 1)) : "—"} al ${selectedPeriod ? dateLabel(addDays(selectedPeriod.end_date, 29)) : "—"} con la misma tasa sobre el capital original? Se conservará el historial previo.`,
                         )
                       }
                     >

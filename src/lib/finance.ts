@@ -30,7 +30,7 @@ export function applyPayment(payment: number, pendingInterest: number, pendingCa
 export function requireInterestSettled(pendingInterest: number) {
   monetary(pendingInterest);
   if (pendingInterest !== 0) throw new Error('No se puede refinanciar con intereses pendientes.');
-  // This prerequisite alone does not authorize refinancing: date/rate conditions are pending.
+  // The current period must also have ended before a new one can be authorized.
 }
 
 export type ScheduledInstallment = {
@@ -75,23 +75,31 @@ export function scheduleLoan(originalCapital: number, monthlyRateBasisPoints: nu
   return { originalCapital, interestCents, totalCents: Number(total), endDate: installments.at(-1)!.dueDate, installments };
 }
 
-/** Preview only: persisted balances, settlement date and overdue count must come from the database. */
+/** Preview only: persisted balances, settlement date and current period must come from the database. */
 export function scheduleRefinancing(input: {
   originalCapital: number;
   pendingCapital: number;
   pendingInterest: number;
-  overdueUnpaidInstallments: number;
+  currentPeriodEndDate: string;
+  asOfDate: string;
   existingRateBasisPoints: number;
   interestSettlementDate: string;
 }) {
   monetary(input.originalCapital);
-  requireApprovedProduct(input.originalCapital, input.existingRateBasisPoints, 1);
+  if (!loanProducts.some(product => product.capital === input.originalCapital && product.rate === input.existingRateBasisPoints)) {
+    throw new Error('Tasa y capital originales no autorizados.');
+  }
   monetary(input.pendingCapital);
   if (input.pendingCapital === 0 || input.pendingCapital > input.originalCapital) {
     throw new Error('El capital pendiente debe ser positivo y no superar el capital original.');
   }
-  requireRefinancingPrerequisites(input.pendingInterest, input.overdueUnpaidInstallments);
-  const originalPlan = scheduleLoan(input.originalCapital, input.existingRateBasisPoints, 1, input.interestSettlementDate);
+  requireRefinancingPrerequisites(input.pendingInterest, input.currentPeriodEndDate, input.asOfDate);
+  contractualDate(input.interestSettlementDate);
+  if (input.interestSettlementDate > input.asOfDate) throw new Error('El interés no puede figurar pagado en una fecha futura.');
+  const start = contractualDate(input.currentPeriodEndDate);
+  start.setUTCDate(start.getUTCDate() + 1);
+  const startDate = start.toISOString().slice(0, 10);
+  const originalPlan = scheduleLoan(input.originalCapital, input.existingRateBasisPoints, 1, startDate);
   const total = BigInt(input.pendingCapital) + BigInt(originalPlan.interestCents);
   if (total > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Deuda fuera de rango.');
   const base = total / 4n;
@@ -100,7 +108,7 @@ export function scheduleRefinancing(input: {
     originalCapital: input.originalCapital,
     pendingCapital: input.pendingCapital,
     rateBasisPoints: input.existingRateBasisPoints,
-    startDate: input.interestSettlementDate,
+    startDate,
     endDate: originalPlan.endDate,
     interestCents: originalPlan.interestCents,
     totalCents: Number(total),
@@ -134,9 +142,10 @@ export function formatPEN(amount: number | bigint) {
     .formatToParts(BigInt(whole)).map(part => part.type === 'fraction' ? fraction : part.value).join('');
 }
 
-/** Necessary prerequisites; contract date/rate conditions must be approved separately. */
-export function requireRefinancingPrerequisites(pendingInterest: number, overdueUnpaidInstallments: number) {
+/** Overdue installments do not prevent refinancing after the current period has ended. */
+export function requireRefinancingPrerequisites(pendingInterest: number, currentPeriodEndDate: string, asOfDate: string) {
   requireInterestSettled(pendingInterest);
-  monetary(overdueUnpaidInstallments);
-  if (overdueUnpaidInstallments > 0) throw new Error('No se puede refinanciar con cuotas vencidas pendientes.');
+  contractualDate(currentPeriodEndDate);
+  contractualDate(asOfDate);
+  if (asOfDate <= currentPeriodEndDate) throw new Error('El periodo aún no ha terminado; puedes refinanciar desde el día siguiente al vencimiento.');
 }

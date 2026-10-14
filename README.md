@@ -29,7 +29,7 @@ No crear worktrees durante configuración: las tareas de nube ya están aisladas
 
 1. Crear proyecto Supabase. Copiar `.env.example` a `.env.local` (ignorado), sin sobreescribir configuración existente.
 2. Configurar `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. La clave publicable es pública; jamás utilizar `service_role` en una variable `NEXT_PUBLIC_*`.
-3. Aplicar primero `supabase/migrations/202610090001_clients_security.sql` después `supabase/migrations/202610090002_financial_operations.sql`, `supabase/migrations/202610090003_client_stand.sql` y `supabase/migrations/202610100004_loan_2000.sql` en SQL Editor una sola vez cada una. Son migraciones iniciales, no scripts para ejecutar repetidamente.
+3. Aplicar primero `supabase/migrations/202610090001_clients_security.sql` después `supabase/migrations/202610090002_financial_operations.sql`, `supabase/migrations/202610090003_client_stand.sql` y `supabase/migrations/202610100004_loan_2000.sql` y `supabase/migrations/202610140005_refinance_after_period.sql` en SQL Editor una sola vez cada una. Son migraciones iniciales, no scripts para ejecutar repetidamente.
 4. Crear usuarios desde Supabase Authentication con contraseña segura; desactivar registro público en los ajustes de Auth. No hay registro de usuarios desde la aplicación.
 5. El responsable del proyecto asigna el perfil desde SQL Editor (UUID real del usuario):
 
@@ -106,3 +106,9 @@ El botón luna/sol de la barra superior y del acceso alterna modo día y noche c
 ### Consulta y actualización automática
 
 El acceso `jefe` permite visualizar sin realizar operaciones de escritura. Para crear una cuenta y habilitar eventos de Supabase Realtime, sigue [Acceso de consulta](docs/ACCESO-CONSULTA.md). Sin eventos, la interfaz conserva un respaldo de actualización cada 30 segundos y al recuperar el foco. Estos pasos de administración no se ejecutan desde el navegador de PM Créditos.
+
+### Actualizar la refinanciación en un proyecto existente
+
+Aplicar únicamente `supabase/migrations/202610140005_refinance_after_period.sql` si las anteriores ya están instaladas. Sustituye `refinance_loan` sin modificar préstamos, pagos, tablas ni políticas. Permite refinanciar con cuotas vencidas cuando el interés está pagado y el periodo ha terminado. El nuevo mes empieza el día siguiente al fin anterior. No repetir las migraciones iniciales. La actualización de Vercel por sí sola no cambia la función de Supabase.
+
+Las pruebas de `operations.test.ts` conservan la verificación de migraciones históricas; `refinancing-sql.test.ts` aplica la 005 y verifica la regla vigente, conservación de operaciones e idempotencia.

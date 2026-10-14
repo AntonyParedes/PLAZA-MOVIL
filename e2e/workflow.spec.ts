@@ -588,6 +588,8 @@ test("pago confirmado mantiene el RPC, muestra éxito y bloquea refinanciación 
   page,
 }) => {
   const fixtures = await dashboardFixtures();
+  const { limaDate, addDays } = await import("../src/lib/portal");
+  fixtures.loan_periods[3].end_date = addDays(limaDate(), -1);
   const calls = await mockSupabase(page, "administrador", fixtures);
   await login(page);
   await page
@@ -1322,4 +1324,48 @@ for (const role of ["administrador", "jefe"] as const) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
     });
   }
+}
+
+
+for (const width of [375, 1440]) {
+  test(`refinancia vencidos después del periodo con interés pagado a ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const fixtures = await dashboardFixtures();
+    const { limaDate, addDays } = await import("../src/lib/portal");
+    const today = limaDate();
+    fixtures.loan_periods[1].end_date = addDays(today, -1);
+    const calls = await mockSupabase(page, "administrador", fixtures);
+    await login(page);
+    await navigateModule(page, "Panel general");
+    await page.getByRole("button", { name: "Ver detalle de Luis Trabajador", exact: true }).click();
+    const detail = page.getByRole("dialog");
+    await detail.getByText("Refinanciar un mes", { exact: true }).click();
+    await expect(detail.getByText("Hay cuotas vencidas pendientes de pago.")).toHaveCount(0);
+    const confirm = detail.getByRole("button", { name: "Confirmar refinanciación", exact: true });
+    await expect(confirm).toBeEnabled();
+    page.once("dialog", dialog => dialog.accept());
+    await confirm.click();
+    await expect.poll(() => calls.length).toBe(1);
+    expect(calls[0].name).toBe("refinance_loan");
+    expect(calls[0].body.p_loan).toBe("loan-1");
+    expect(calls[0].body.p_request).toMatch(/^[0-9a-f-]{36}$/);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  });
+}
+
+for (const endOffset of [0, 1]) {
+  test(`refinanciación bloqueada cuando faltan ${endOffset} días para terminar el periodo`, async ({ page }) => {
+    const fixtures = await dashboardFixtures();
+    const { limaDate, addDays } = await import("../src/lib/portal");
+    fixtures.loan_periods[1].end_date = addDays(limaDate(), endOffset);
+    const calls = await mockSupabase(page, "administrador", fixtures);
+    await login(page);
+    await navigateModule(page, "Panel general");
+    await page.getByRole("button", { name: "Ver detalle de Luis Trabajador", exact: true }).click();
+    const detail = page.getByRole("dialog");
+    await detail.getByText("Refinanciar un mes", { exact: true }).click();
+    await expect(detail.getByText(/El periodo aún no ha terminado/)).toBeVisible();
+    await expect(detail.getByRole("button", { name: "Confirmar refinanciación", exact: true })).toBeDisabled();
+    expect(calls).toHaveLength(0);
+  });
 }

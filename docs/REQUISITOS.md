@@ -10,8 +10,8 @@
 - Pagos primero a interés pendiente, luego a capital; adelantos no reducen interés. El pago se distribuye por orden de cuotas y se conserva su vencimiento original.
 - Cuotas impagas se acumulan para cobro sin mover la fecha final contractual.
 - Un préstamo activo por cliente; otro solo después de liquidarlo.
-- Refinanciación bloqueada mientras haya intereses pendientes o cuotas vencidas pendientes.
-- Refinanciación: nuevo periodo de cuatro semanas empieza en la fecha de pago que cancela íntegramente el interés anterior. Se mantiene la tasa numérica anterior y se calcula sobre capital original. El capital pendiente se traslada sin capitalizar interés ni duplicar deuda.
+- Refinanciación autorizada solo después del vencimiento del periodo vigente y con el interés generado completamente pagado. Las cuotas vencidas pendientes no bloquean la operación (actualización aprobada el 14/10/2026).
+- Refinanciación: nuevo periodo de cuatro semanas empieza el día siguiente al vencimiento del periodo anterior, aunque el interés se haya pagado antes o la solicitud se registre después. Se mantiene la tasa numérica anterior y se calcula sobre capital original. El capital pendiente se traslada sin capitalizar interés ni duplicar deuda.
 - El cronograma anterior se conserva como histórico; sus pendientes no se suman al cronograma vigente.
 - **Los pagos no se anulan ni eliminan**, según la última decisión del usuario, que reemplaza la regla inicial de anulaciones con motivo.
 - El préstamo no se cancela ni se elimina: solo se liquida o refinancia. No se alteran capital original, tasa ni plazos ya registrados.
