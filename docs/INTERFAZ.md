@@ -96,3 +96,7 @@ Se restaura su entrada lateral y su título propio por la prioridad operativa de
 ## Refinanciación después del periodo (14/10/2026)
 
 Las cuotas vencidas dejan de bloquear la operación. Interfaz y RPC 005 exigen préstamo activo con capital pendiente, interés cancelado y fecha de Lima posterior al vencimiento vigente. El nuevo mes comienza al día siguiente del vencimiento anterior, conserva tasa sobre capital original y genera cuatro cuotas semanales. El detalle muestra inicio y fin antes de confirmar; el historial previo permanece íntegro. El rol de consulta no puede ejecutar la operación. La migración 005 debe aplicarse en Supabase para actualizar también la validación del servidor.
+
+## Préstamos con monto ingresado (15/10/2026)
+
+El formulario reemplaza la lista de productos por Monto del préstamo y Plazo del préstamo. Hasta S/500 usa 7 % mensual; importes mayores usan 6 %. Permite montos positivos con céntimos, uno o dos meses, vista previa de cuatro u ocho cuotas y confirmación del total. Cambiar monto o plazo invalida la vista previa anterior. La RPC valida la misma política. La refinanciación mantiene tasa original, interés pagado y periodo terminado; comienza el día siguiente al vencimiento anterior. Si el servidor responde con las reglas antiguas, el error informa que falta aplicar SQL 006 y ofrece acceso al archivo.

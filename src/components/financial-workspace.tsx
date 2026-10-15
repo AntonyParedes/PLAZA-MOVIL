@@ -6,7 +6,8 @@ import {
   cents,
   decimalSoles,
   formatPEN,
-  loanProducts,
+  monthlyRateForCapital,
+  requireApprovedProduct,
   scheduleLoan,
   requireRefinancingPrerequisites,
 } from "@/lib/finance";
@@ -87,8 +88,10 @@ export default function FinancialWorkspace({
   const [memberFilter, setMemberFilter] = useState("todos");
   const [showNew, setShowNew] = useState(false);
   const [selected, setSelected] = useState("");
-  const [productId, setProductId] = useState("");
-  const product = loanProducts.find((p) => p.id === productId);
+  const [loanAmount, setLoanAmount] = useState("");
+  const [loanMonths, setLoanMonths] = useState<1 | 2>(1);
+  let displayedRate: number | null = null;
+  try { displayedRate = monthlyRateForCapital(cents(loanAmount)); } catch { /* The form explains validation on submit. */ }
   const [start, setStart] = useState(limaDate);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paidOn, setPaidOn] = useState(limaDate);
@@ -231,11 +234,10 @@ export default function FinancialWorkspace({
       setPreview(null);
       setRevision((r) => r + 1);
     } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : "No se pudo completar la operación. Puedes reintentar con los mismos datos.",
-      );
+      const message = e instanceof Error ? e.message : "No se pudo completar la operación. Puedes reintentar con los mismos datos.";
+      setError(/cuotas vencidas pendientes|producto de préstamo no autorizado/i.test(message)
+        ? "Actualización de Supabase pendiente: la base de datos conserva las reglas anteriores. Aplica la actualización 006 y vuelve a intentarlo."
+        : message);
     } finally {
       mutationLock.current = false;
       setBusy(false);
@@ -245,25 +247,25 @@ export default function FinancialWorkspace({
     event.preventDefault();
     setError("");
     try {
-      if (!product) throw new Error("Selecciona un producto de préstamo.");
-      setPreview(
-        scheduleLoan(product.capital, product.rate, product.months, start),
-      );
+      const capital = cents(loanAmount);
+      const rate = monthlyRateForCapital(capital);
+      requireApprovedProduct(capital, rate, loanMonths);
+      setPreview(scheduleLoan(capital, rate, loanMonths, start));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Datos inválidos.");
     }
   }
   async function createLoan(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!preview || !product) return;
+    if (!preview) return;
     const fields = new FormData(event.currentTarget);
     await mutate(
       "create_loan",
       {
         p_client: String(fields.get("client")),
         p_capital: preview.originalCapital,
-        p_rate: product.rate,
-        p_months: product.months,
+        p_rate: monthlyRateForCapital(preview.originalCapital),
+        p_months: loanMonths,
         p_start: start,
       },
       `¿Desembolsar ${money(preview.originalCapital)} y registrar una deuda total de ${money(preview.totalCents)}? El préstamo no se podrá cancelar ni eliminar.`,
@@ -660,7 +662,7 @@ export default function FinancialWorkspace({
           Actualizando saldos…
         </p>
       )}
-      {error && <Notice error>{error}</Notice>}
+      {error && <Notice error>{error}{error.startsWith("Actualización de Supabase pendiente") && <p className="mt-2"><a className="font-semibold underline" href="https://github.com/AntonyParedes/PLAZA-MOVIL/blob/mejora/experiencia-navegacion/supabase/migrations/202610150006_flexible_loans_and_refinancing.sql" target="_blank" rel="noreferrer">Abrir actualización SQL 006</a></p>}</Notice>}
       {success && <Notice>{success}</Notice>}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -714,7 +716,7 @@ export default function FinancialWorkspace({
             <Card>
               <SectionHeading
                 title="Preparar préstamo"
-                description="Selecciona el producto y revisa las cuotas antes de confirmar."
+                description="Ingresa el monto y el plazo; la tasa se calcula automáticamente."
                 action={
                   <Button variant="outline" onClick={() => setShowNew(false)}>
                     Cancelar
@@ -726,24 +728,20 @@ export default function FinancialWorkspace({
                 className="grid gap-5 sm:grid-cols-2"
               >
                 <label>
-                  Producto de préstamo
-                  <select
-                    aria-label="Producto de préstamo"
-                    required
-                    value={productId}
-                    onChange={(e) => {
-                      setProductId(e.target.value);
-                      setPreview(null);
-                    }}
-                  >
-                    <option value="">Selecciona un producto autorizado</option>
-                    {loanProducts.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.label}
-                      </option>
-                    ))}
+                  Monto del préstamo (S/)
+                  <input type="number" min="0.01" step="0.01" inputMode="decimal" required value={loanAmount} onChange={event => { setLoanAmount(event.target.value); setPreview(null); }} placeholder="Ej. 1500.00" />
+                </label>
+                <label>
+                  Plazo del préstamo
+                  <select aria-label="Plazo del préstamo" value={loanMonths} onChange={event => { setLoanMonths(Number(event.target.value) as 1 | 2); setPreview(null); }}>
+                    <option value="1">1 mes · 4 cuotas semanales</option>
+                    <option value="2">2 meses · 8 cuotas semanales</option>
                   </select>
                 </label>
+                <div className="rounded-xl bg-blue-50 p-4 text-sm text-blue-700" role="status">
+                  Tasa mensual: <strong>{displayedRate === null ? "Ingresa un monto mayor que cero" : `${displayedRate / 100} %`}</strong>
+                  <p className="mt-1 text-xs">Hasta S/500: 7 % mensual. Más de S/500: 6 % mensual.</p>
+                </div>
                 <label>
                   Fecha del préstamo
                   <input
@@ -1180,13 +1178,13 @@ export default function FinancialWorkspace({
       >
         {selectedLoan && (
           <div className="space-y-6">
-            {error && <Notice error>{error}</Notice>}
+            {error && <Notice error>{error}{error.startsWith("Actualización de Supabase pendiente") && <p className="mt-2"><a className="font-semibold underline" href="https://github.com/AntonyParedes/PLAZA-MOVIL/blob/mejora/experiencia-navegacion/supabase/migrations/202610150006_flexible_loans_and_refinancing.sql" target="_blank" rel="noreferrer">Abrir actualización SQL 006</a></p>}</Notice>}
             {success && <Notice>{success}</Notice>}
             {selectedStatus?.requiresSettlement && (
               <Notice error>
-                Liquidación urgente: el plazo terminó el{" "}
-                {dateLabel(selectedStatus.termEndDate!)}. Debe liquidar el 100 %
-                del Saldo: {money(selectedStatus.balance)}.
+                El plazo terminó el {dateLabel(selectedStatus.termEndDate!)}.
+                Saldo: {money(selectedStatus.balance)}. Puedes liquidar el préstamo
+                o refinanciarlo cuando el interés esté completamente pagado.
               </Notice>
             )}
             <div className="flex flex-wrap items-center justify-between gap-3">

@@ -4,7 +4,7 @@ Base de desarrollo de una aplicación de préstamos personales en PEN y zona Ame
 
 ## Estado real
 
-Implementados: acceso por correo/contraseña, roles, consulta/alta/edición de clientes, panel financiero, préstamos, cronogramas, pagos parciales y totales, refinanciaciones, historial, alertas, WhatsApp manual, reportes XLSX completos y CSV, y apariencia día/noche manual o automática. Productos disponibles: S/500 al 7 % mensual por un mes; S/1.000 al 6 % mensual por uno o dos meses y S/2.000 al 6 % mensual por dos meses (intereses S/35, S/60, S/120 y S/240, respectivamente). Las operaciones financieras utilizan RPC SQL transaccionales, bloqueos e idempotencia; pagos definitivos sin anulación ni eliminación, según decisión del usuario.
+Implementados: acceso por correo/contraseña, roles, consulta/alta/edición de clientes, panel financiero, préstamos, cronogramas, pagos parciales y totales, refinanciaciones, historial, alertas, WhatsApp manual, reportes XLSX completos y CSV, y apariencia día/noche manual o automática. Montos flexibles: hasta S/500 al 7 % mensual, mayores de S/500 al 6 %, siempre por uno o dos meses (cuatro u ocho cuotas). La tasa es automática y el interés se calcula sobre el capital original por el número de meses. Las operaciones financieras utilizan RPC SQL transaccionales, bloqueos e idempotencia; pagos definitivos sin anulación ni eliminación, según decisión del usuario.
 
 **Sin proyecto Supabase conectado: autenticación, persistencia y permisos aún no se han validado contra el servicio real.** Hay pruebas en PostgreSQL local con Auth simulado.
 
@@ -29,7 +29,7 @@ No crear worktrees durante configuración: las tareas de nube ya están aisladas
 
 1. Crear proyecto Supabase. Copiar `.env.example` a `.env.local` (ignorado), sin sobreescribir configuración existente.
 2. Configurar `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. La clave publicable es pública; jamás utilizar `service_role` en una variable `NEXT_PUBLIC_*`.
-3. Aplicar primero `supabase/migrations/202610090001_clients_security.sql` después `supabase/migrations/202610090002_financial_operations.sql`, `supabase/migrations/202610090003_client_stand.sql` y `supabase/migrations/202610100004_loan_2000.sql` y `supabase/migrations/202610140005_refinance_after_period.sql` en SQL Editor una sola vez cada una. Son migraciones iniciales, no scripts para ejecutar repetidamente.
+3. Aplicar primero `supabase/migrations/202610090001_clients_security.sql` después `supabase/migrations/202610090002_financial_operations.sql`, `supabase/migrations/202610090003_client_stand.sql` y `supabase/migrations/202610100004_loan_2000.sql` y `supabase/migrations/202610140005_refinance_after_period.sql` y `supabase/migrations/202610150006_flexible_loans_and_refinancing.sql` en SQL Editor una sola vez cada una. Son migraciones iniciales, no scripts para ejecutar repetidamente.
 4. Crear usuarios desde Supabase Authentication con contraseña segura; desactivar registro público en los ajustes de Auth. No hay registro de usuarios desde la aplicación.
 5. El responsable del proyecto asigna el perfil desde SQL Editor (UUID real del usuario):
 
@@ -112,3 +112,9 @@ El acceso `jefe` permite visualizar sin realizar operaciones de escritura. Para 
 Aplicar únicamente `supabase/migrations/202610140005_refinance_after_period.sql` si las anteriores ya están instaladas. Sustituye `refinance_loan` sin modificar préstamos, pagos, tablas ni políticas. Permite refinanciar con cuotas vencidas cuando el interés está pagado y el periodo ha terminado. El nuevo mes empieza el día siguiente al fin anterior. No repetir las migraciones iniciales. La actualización de Vercel por sí sola no cambia la función de Supabase.
 
 Las pruebas de `operations.test.ts` conservan la verificación de migraciones históricas; `refinancing-sql.test.ts` aplica la 005 y verifica la regla vigente, conservación de operaciones e idempotencia.
+
+### Actualización 006: monto ingresado y refinanciación
+
+Para proyectos con las migraciones iniciales instaladas, ejecutar únicamente `supabase/migrations/202610150006_flexible_loans_and_refinancing.sql`. Esta actualización incluye la regla de refinanciación de 005, por lo que resuelve ambas funciones en una sola transacción aunque no se haya aplicado 005. No modifica los préstamos ni pagos anteriores. También requiere desplegar esta versión del frontend: un redeploy de código antiguo conserva el bloqueo visual anterior.
+
+El nuevo administrador se crea desde Supabase Authentication con el otro correo y se asigna `administrador` en `profiles`. Sigue la sección «Crear otro administrador» de [Accesos](docs/ACCESO-CONSULTA.md). El frontend no administra contraseñas ni permite elevar roles.

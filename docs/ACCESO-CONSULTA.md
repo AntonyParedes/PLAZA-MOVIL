@@ -53,3 +53,18 @@ Sin habilitar la publicación, o si Realtime está desconectado, los datos se co
 ## Validación pendiente en producción
 
 Con dos navegadores: iniciar sesión como administrador y como consulta; registrar un pago autorizado con el administrador y comprobar que cambia el saldo en la sesión de consulta. Probar también el directorio de clientes. No se ha ejecutado esta comprobación contra tu Supabase real desde el entorno de desarrollo.
+
+## Crear otro administrador con otro correo
+
+1. En Supabase → Authentication → Users → Add user → Create new user, registra el otro correo y una contraseña segura; no reutilices el UUID de las cuentas anteriores.
+2. Copia el UUID del nuevo usuario.
+3. En SQL Editor ejecuta, reemplazando el marcador:
+
+```sql
+insert into public.profiles (id, role)
+values ('UUID_DEL_USUARIO_NUEVO', 'administrador');
+```
+
+4. Inicia sesión con ese correo: podrá registrar y editar clientes, crear préstamos, registrar pagos y refinanciar. Las cuentas anteriores siguen funcionando.
+
+Esta cuenta no se ha creado desde Codex: se requiere al responsable autenticado en Supabase. No se necesita compartir contraseñas ni claves privadas en el chat.

@@ -129,7 +129,7 @@ test('refinanciación exige interés completo y plazo vencido, no cuotas pagadas
 test('rechaza productos distintos de los autorizados, incluyendo interés de cero',()=>{
  assert.throws(()=>requireApprovedProduct(50000,0,1));
  assert.throws(()=>requireApprovedProduct(50000,600,1));
- assert.throws(()=>requireApprovedProduct(50000,700,2));
+ assert.doesNotThrow(()=>requireApprovedProduct(50000,700,2));
  assert.doesNotThrow(()=>requireApprovedProduct(50000,700,1));
  assert.doesNotThrow(()=>requireApprovedProduct(100000,600,1));
  assert.doesNotThrow(()=>requireApprovedProduct(100000,600,2));
@@ -153,7 +153,7 @@ test('presenta y exporta importes grandes sin perder céntimos',async()=>{
 
 test("S/2000 al 6 % mensual por dos meses: interés 240, total 2240 y ocho cuotas de 280", () => {
   assert.doesNotThrow(() => requireApprovedProduct(200000, 600, 2));
-  assert.throws(() => requireApprovedProduct(200000, 600, 1));
+  assert.doesNotThrow(() => requireApprovedProduct(200000, 600, 1));
   assert.throws(() => requireApprovedProduct(200000, 700, 2));
   const plan = scheduleLoan(200000, 600, 2, "2026-10-10");
   assert.equal(plan.interestCents, 24000);
@@ -172,4 +172,23 @@ test('refinanciación respeta el vencimiento previo aunque el interés se pagó 
   assert.equal(plan.interestCents, 12000);
   assert.deepEqual(plan.installments.map(row => row.scheduledCents), [50500,50500,50500,50500]);
   assert.equal(plan.installments[0].dueDate, '2026-10-22');
+});
+
+
+test('monto libre positivo asigna tasa automática y conserva céntimos y plazos', async () => {
+ const { monthlyRateForCapital } = await import('../src/lib/finance');
+ for (const [capital,rate] of [[1,700],[25000,700],[49999,700],[50000,700],[50001,600],[100000,600],[150000,600],[200000,600]]) {
+  assert.equal(monthlyRateForCapital(capital),rate);
+  for (const months of [1,2] as const) assert.doesNotThrow(() => requireApprovedProduct(capital,rate,months));
+ }
+ assert.equal(monthlyRateForCapital(49999),700);
+ assert.throws(() => monthlyRateForCapital(0));
+ assert.throws(() => requireApprovedProduct(150000,700,2));
+ assert.throws(() => requireApprovedProduct(150000,600,3));
+ const plan = scheduleLoan(150000,monthlyRateForCapital(150000),2,'2026-10-15');
+ assert.equal(plan.interestCents,18000);
+ assert.equal(plan.totalCents,168000);
+ assert.equal(plan.installments.length,8);
+ assert.ok(plan.installments.every(i => i.scheduledCents === 21000));
+ assert.equal(scheduleLoan(50000,700,2,'2026-10-15').interestCents,7000);
 });

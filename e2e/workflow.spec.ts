@@ -105,6 +105,7 @@ async function login(page: Page) {
 }
 for (const [productId, capital, interest, quota] of [
   ["1000-2", 100000, 120, 140],
+  ["1500-2", 150000, 180, 210],
   ["2000-2", 200000, 240, 280],
 ] as const)
   test(`administrador selecciona ${productId} de ocho cuotas y envía tasa mensual con UUID idempotente`, async ({
@@ -117,9 +118,8 @@ for (const [productId, capital, interest, quota] of [
       .click();
     await page.getByRole("button", { name: "Préstamos", exact: true }).click();
     await page.getByRole("button", { name: "Nuevo préstamo" }).click();
-    await page
-      .getByRole("combobox", { name: "Producto de préstamo", exact: true })
-      .selectOption(productId);
+    await page.getByLabel("Monto del préstamo (S/)", { exact: true }).fill(String(capital / 100));
+    await page.getByLabel("Plazo del préstamo", { exact: true }).selectOption("2");
     await page.getByLabel("Fecha del préstamo").fill("2026-10-09");
     await page.getByRole("button", { name: "Revisar cronograma" }).click();
     await expect(page.getByText(/Cuota 8 ·/)).toBeVisible();
@@ -1013,7 +1013,7 @@ test("periodo terminado prioriza liquidación urgente en panel, cliente, WhatsAp
     .getByRole("button", { name: "Ver detalle de Ana Socia", exact: true })
     .click();
   const sheet = page.getByRole("dialog");
-  await expect(sheet).toContainText("Debe liquidar el 100 % del Saldo");
+  await expect(sheet).toContainText("Puedes liquidar el préstamo o refinanciarlo");
   const href = await sheet
     .getByRole("link", { name: "Recordar pago por WhatsApp" })
     .getAttribute("href");
@@ -1253,7 +1253,7 @@ for (const width of [375, 1440]) {
     await expect(page.getByRole("table", { name: "Panel general de préstamos" })).toBeVisible();
     await expect(page.getByRole("table", { name: "Cartera de préstamos", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "Nuevo préstamo", exact: true }).click();
-    await expect(page.getByRole("combobox", { name: "Producto de préstamo", exact: true })).toBeVisible();
+    await expect(page.getByLabel("Monto del préstamo (S/)", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Cancelar", exact: true }).click();
     await navigateModule(page, "Configuración");
     await page.getByRole("button", { name: "Revisar Excel", exact: true }).click();
@@ -1369,3 +1369,59 @@ for (const endOffset of [0, 1]) {
     expect(calls).toHaveLength(0);
   });
 }
+
+
+for (const [amount, months, rate, interest, quota] of [[250,1,700,17.5,66.88],[500,2,700,70,71.25],[1500,1,600,90,397.5]] as const) {
+  test(`monto libre ${amount} a ${months} meses usa tasa automática y confirma datos`, async ({ page }) => {
+    const calls = await mockSupabase(page, "administrador");
+    await login(page);
+    await navigateModule(page, "Préstamos");
+    await page.getByRole("button", { name: "Nuevo préstamo", exact: true }).click();
+    await page.getByLabel("Monto del préstamo (S/)", { exact: true }).fill(String(amount));
+    await page.getByLabel("Plazo del préstamo", { exact: true }).selectOption(String(months));
+    await expect(page.getByText("Tasa mensual:")).toContainText(`${rate/100} %`);
+    await page.getByRole("button", { name: "Revisar cronograma" }).click();
+    await expect(page.getByText(/Capital: S\//)).toContainText(`Interés: S/ ${interest.toFixed(2)}`);
+    await expect(page.getByText(new RegExp(`Cuota ${months*4} ·`))).toContainText(`S/ ${quota.toFixed(2)}`);
+    await page.getByRole("combobox", { name: "Cliente", exact: true }).selectOption(clientId);
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "Confirmar desembolso", exact: true }).click();
+    await expect.poll(() => calls.length).toBe(1);
+    expect(calls[0].body).toMatchObject({p_capital:amount*100,p_rate:rate,p_months:months});
+  });
+}
+
+test("monto o plazo nuevo invalida el cronograma antes de desembolsar", async ({ page }) => {
+  const calls = await mockSupabase(page, "administrador");
+  await login(page);
+  await navigateModule(page, "Préstamos");
+  await page.getByRole("button", { name: "Nuevo préstamo", exact: true }).click();
+  const amount = page.getByLabel("Monto del préstamo (S/)", { exact: true });
+  await amount.fill("1500");
+  await page.getByRole("button", { name: "Revisar cronograma" }).click();
+  await expect(page.getByRole("button", { name: "Confirmar desembolso" })).toBeVisible();
+  await amount.fill("500");
+  await expect(page.getByRole("button", { name: "Confirmar desembolso" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Revisar cronograma" }).click();
+  await page.getByLabel("Plazo del préstamo", { exact: true }).selectOption("2");
+  await expect(page.getByRole("button", { name: "Confirmar desembolso" })).toHaveCount(0);
+  expect(calls).toHaveLength(0);
+});
+
+
+test("servidor antiguo explica que falta aplicar la actualización de Supabase", async ({ page }) => {
+  const fixtures = await dashboardFixtures();
+  const { limaDate, addDays } = await import("../src/lib/portal");
+  fixtures.loan_periods[1].end_date = addDays(limaDate(), -1);
+  await mockSupabase(page, "administrador", fixtures);
+  await page.route("https://pm-e2e.supabase.co/rest/v1/rpc/refinance_loan", route => route.request().method() === "OPTIONS" ? route.fallback() : route.fulfill({status:400,contentType:"application/json",headers:{"access-control-allow-origin":"*"},body:JSON.stringify({message:"Cuotas vencidas pendientes",code:"P0001"})}));
+  await login(page);
+  await navigateModule(page, "Panel general");
+  await page.getByRole("button", { name: "Ver detalle de Luis Trabajador", exact: true }).click();
+  const detail = page.getByRole("dialog");
+  await detail.getByText("Refinanciar un mes", { exact: true }).click();
+  page.once("dialog", dialog => dialog.accept());
+  await detail.getByRole("button", { name: "Confirmar refinanciación", exact: true }).click();
+  await expect(detail.getByText(/Actualización de Supabase pendiente/)).toBeVisible();
+  await expect(detail.getByRole("link", { name: "Abrir actualización SQL 006" })).toHaveAttribute("href", /202610150006_flexible_loans_and_refinancing.sql$/);
+});

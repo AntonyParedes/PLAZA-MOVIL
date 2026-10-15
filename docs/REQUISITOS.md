@@ -3,7 +3,7 @@
 ## Contrato financiero aprobado por el usuario
 
 - PEN, importes enteros en céntimos, zona America/Lima.
-- Productos autorizados por la última aclaración: S/500 al 7 % mensual por un mes (S/35 de interés); S/1.000 al 6 % mensual por un mes (S/60); S/1.000 al 6 % mensual por dos meses (S/120); S/2.000 al 6 % mensual por dos meses (S/240, ocho cuotas de S/280). La tasa es **mensual** y el interés inicial se multiplica por los meses del contrato. Esta aclaración reemplaza la interpretación anterior de tasa para todo el plazo.
+- Desde el 15/10/2026 el administrador ingresa un monto positivo con hasta dos decimales. Hasta S/500 inclusive corresponde 7 % mensual; por encima de S/500, 6 % mensual. Todos los montos admiten uno o dos meses (cuatro u ocho cuotas). La tasa se calcula automáticamente y se valida en SQL. Interés inicial = capital original × tasa mensual × meses, redondeado al céntimo. Ejemplo S/1.500 por dos meses: interés S/180, total S/1.680, ocho cuotas de S/210.
 - Un mes equivale a cuatro semanas: cuatro u ocho cuotas, primera a los siete días. Los feriados no cambian vencimientos.
 - Interés sobre capital original, también al refinanciar. Nunca sobre saldo ni sobre intereses.
 - Redondeo de interés al céntimo más cercano, mitades hacia arriba. Céntimos sobrantes repartidos de uno en uno en las últimas cuotas.
@@ -18,7 +18,7 @@
 - Administrador registra/modifica clientes y opera. Jefe consulta. Roles asignados por responsable del proyecto, sin autoservicio.
 - WhatsApp manual, sin envío automático. Excel se previsualiza y valida sin escribir a producción.
 
-El administrador elige explícitamente uno de los cuatro productos. No se permiten combinaciones arbitrarias ni préstamos al 0 % desde la interfaz o las RPC SQL. Sobrepagos se rechazan: falta definir el tratamiento de excedentes antes de admitirlos. El acceso inicial utiliza correo como identificador de usuario en Supabase Auth.
+El administrador ingresa monto y elige uno o dos meses; la tasa no es editable. No se permite monto cero ni tasa de 0 % desde la interfaz o las RPC SQL. Sobrepagos se rechazan: falta definir el tratamiento de excedentes antes de admitirlos. El acceso inicial utiliza correo como identificador de usuario en Supabase Auth.
 
 ## Modelo implementado
 

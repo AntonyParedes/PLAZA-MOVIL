@@ -86,9 +86,7 @@ export function scheduleRefinancing(input: {
   interestSettlementDate: string;
 }) {
   monetary(input.originalCapital);
-  if (!loanProducts.some(product => product.capital === input.originalCapital && product.rate === input.existingRateBasisPoints)) {
-    throw new Error('Tasa y capital originales no autorizados.');
-  }
+  requireApprovedProduct(input.originalCapital, input.existingRateBasisPoints, 1);
   monetary(input.pendingCapital);
   if (input.pendingCapital === 0 || input.pendingCapital > input.originalCapital) {
     throw new Error('El capital pendiente debe ser positivo y no superar el capital original.');
@@ -118,17 +116,15 @@ export function scheduleRefinancing(input: {
   };
 }
 
-export const loanProducts = [
-  { id: '500-1', label: 'S/500 · 7 % mensual · 1 mes (4 cuotas)', capital: 50000, rate: 700, months: 1 },
-  { id: '1000-1', label: 'S/1.000 · 6 % mensual · 1 mes (4 cuotas)', capital: 100000, rate: 600, months: 1 },
-  { id: '1000-2', label: 'S/1.000 · 6 % mensual · 2 meses (8 cuotas)', capital: 100000, rate: 600, months: 2 },
-  { id: '2000-2', label: 'S/2.000 · 6 % mensual · 2 meses (8 cuotas)', capital: 200000, rate: 600, months: 2 },
-] as const;
-
+/** Monthly rate inferred from capital, not entered by the operator. */
+export function monthlyRateForCapital(capital: number): number {
+  monetary(capital);
+  if (capital === 0) throw new Error('El monto del préstamo debe ser mayor que cero.');
+  return capital <= 50000 ? 700 : 600;
+}
 export function requireApprovedProduct(capital: number, rate: number, months: number) {
-  if (!loanProducts.some(product => product.capital === capital && product.rate === rate && product.months === months)) {
-    throw new Error('Selecciona uno de los productos de préstamo autorizados.');
-  }
+  if (months !== 1 && months !== 2) throw new Error('El plazo debe ser de uno o dos meses.');
+  if (rate !== monthlyRateForCapital(capital)) throw new Error('La tasa no corresponde al monto del préstamo.');
 }
 export function decimalSoles(amount: number | bigint): string {
   if (typeof amount === 'number') monetary(amount);
