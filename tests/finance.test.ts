@@ -192,3 +192,18 @@ test('monto libre positivo asigna tasa automática y conserva céntimos y plazos
  assert.ok(plan.installments.every(i => i.scheduledCents === 21000));
  assert.equal(scheduleLoan(50000,700,2,'2026-10-15').interestCents,7000);
 });
+
+test('refinanciación permite fecha elegida y dos meses con ocho cuotas, sin anticipar el periodo', () => {
+ const input = { originalCapital:100000,pendingCapital:81000,pendingInterest:0,currentPeriodEndDate:'2026-10-14',asOfDate:'2026-10-25',existingRateBasisPoints:600,interestSettlementDate:'2026-10-10',startDate:'2026-10-20',months:2 as const };
+ const plan = scheduleRefinancing(input);
+ assert.equal(plan.startDate,'2026-10-20');
+ assert.equal(plan.endDate,'2026-12-15');
+ assert.equal(plan.interestCents,12000);
+ assert.equal(plan.totalCents,93000);
+ assert.equal(plan.installments.length,8);
+ assert.equal(plan.installments[0].dueDate,'2026-10-27');
+ assert.ok(plan.installments.every(row=>row.scheduledCents===11625));
+ assert.throws(()=>scheduleRefinancing({...input,startDate:'2026-10-14'}));
+ assert.throws(()=>scheduleRefinancing({...input,startDate:'2026-10-26'}));
+ assert.throws(()=>scheduleRefinancing({...input,months:3 as 1}));
+});

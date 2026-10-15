@@ -9,6 +9,7 @@ import {
   monthlyRateForCapital,
   requireApprovedProduct,
   scheduleLoan,
+  scheduleRefinancing,
   requireRefinancingPrerequisites,
 } from "@/lib/finance";
 import {
@@ -88,6 +89,7 @@ export default function FinancialWorkspace({
   const [memberFilter, setMemberFilter] = useState("todos");
   const [showNew, setShowNew] = useState(false);
   const [selected, setSelected] = useState("");
+  const [refinanceDraft, setRefinanceDraft] = useState<{ key: string; start: string; months: 1 | 2 } | null>(null);
   const [loanAmount, setLoanAmount] = useState("");
   const [loanMonths, setLoanMonths] = useState<1 | 2>(1);
   let displayedRate: number | null = null;
@@ -192,6 +194,17 @@ export default function FinancialWorkspace({
     ? collectionStatus(selectedLoan, data.periods, data.installments, today)
     : undefined;
   const selectedPeriod = current(selected);
+  const refinanceKey = `${selected}:${selectedPeriod?.id ?? ""}`;
+  const refinanceStart = refinanceDraft?.key === refinanceKey ? refinanceDraft.start : selectedPeriod ? addDays(selectedPeriod.end_date, 1) : "";
+  const refinanceMonths = refinanceDraft?.key === refinanceKey ? refinanceDraft.months : 1;
+  let refinancePreview: ReturnType<typeof scheduleRefinancing> | null = null;
+  let refinanceError = selectedLoan ? refinancingBlock(selectedLoan) : "";
+  if (selectedLoan && selectedPeriod && !refinanceError) {
+    try {
+      refinancePreview = scheduleRefinancing({ originalCapital: selectedLoan.original_capital, pendingCapital: selectedLoan.capital_pending, pendingInterest: selectedLoan.interest_pending, currentPeriodEndDate: selectedPeriod.end_date, asOfDate: today, existingRateBasisPoints: selectedLoan.rate_basis_points, interestSettlementDate: selectedPeriod.interest_settled_on!, startDate: refinanceStart, months: refinanceMonths });
+    } catch (error) { refinanceError = error instanceof Error ? error.message : "Revisa fecha y plazo de refinanciación"; }
+  }
+
   const selectedQuotas = data.installments
     .filter(
       (i) => i.loan_id === selected && i.is_current && i.pending_cents > 0,
@@ -235,8 +248,8 @@ export default function FinancialWorkspace({
       setRevision((r) => r + 1);
     } catch (e) {
       const message = e instanceof Error ? e.message : "No se pudo completar la operación. Puedes reintentar con los mismos datos.";
-      setError(/cuotas vencidas pendientes|producto de préstamo no autorizado/i.test(message)
-        ? "Actualización de Supabase pendiente: la base de datos conserva las reglas anteriores. Aplica la actualización 006 y vuelve a intentarlo."
+      setError(/cuotas vencidas pendientes|producto de préstamo no autorizado/i.test(message) || (name === "refinance_loan" && /could not find.*function|schema cache/i.test(message))
+        ? "Actualización de Supabase pendiente: la base de datos conserva las reglas anteriores. Aplica la actualización 007 y vuelve a intentarlo."
         : message);
     } finally {
       mutationLock.current = false;
@@ -662,7 +675,7 @@ export default function FinancialWorkspace({
           Actualizando saldos…
         </p>
       )}
-      {error && <Notice error>{error}{error.startsWith("Actualización de Supabase pendiente") && <p className="mt-2"><a className="font-semibold underline" href="https://github.com/AntonyParedes/PLAZA-MOVIL/blob/mejora/experiencia-navegacion/supabase/migrations/202610150006_flexible_loans_and_refinancing.sql" target="_blank" rel="noreferrer">Abrir actualización SQL 006</a></p>}</Notice>}
+      {error && <Notice error>{error}{error.startsWith("Actualización de Supabase pendiente") && <p className="mt-2"><a className="font-semibold underline" href="https://github.com/AntonyParedes/PLAZA-MOVIL/blob/mejora/experiencia-navegacion/supabase/migrations/202610150007_refinance_date_and_term.sql" target="_blank" rel="noreferrer">Abrir actualización SQL 007</a></p>}</Notice>}
       {success && <Notice>{success}</Notice>}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -1178,7 +1191,7 @@ export default function FinancialWorkspace({
       >
         {selectedLoan && (
           <div className="space-y-6">
-            {error && <Notice error>{error}{error.startsWith("Actualización de Supabase pendiente") && <p className="mt-2"><a className="font-semibold underline" href="https://github.com/AntonyParedes/PLAZA-MOVIL/blob/mejora/experiencia-navegacion/supabase/migrations/202610150006_flexible_loans_and_refinancing.sql" target="_blank" rel="noreferrer">Abrir actualización SQL 006</a></p>}</Notice>}
+            {error && <Notice error>{error}{error.startsWith("Actualización de Supabase pendiente") && <p className="mt-2"><a className="font-semibold underline" href="https://github.com/AntonyParedes/PLAZA-MOVIL/blob/mejora/experiencia-navegacion/supabase/migrations/202610150007_refinance_date_and_term.sql" target="_blank" rel="noreferrer">Abrir actualización SQL 007</a></p>}</Notice>}
             {success && <Notice>{success}</Notice>}
             {selectedStatus?.requiresSettlement && (
               <Notice error>
@@ -1339,36 +1352,31 @@ export default function FinancialWorkspace({
                 </Card>
                 <details className="surface p-5">
                   <summary className="flex min-h-11 items-center justify-between gap-3 text-sm font-semibold">
-                    <span>Refinanciar un mes</span>
+                    <span>Refinanciar préstamo</span>
                     <ChevronRight size={18} />
                   </summary>
                   <div className="mt-4 space-y-4 text-sm leading-6">
-                    <p>
-                      Misma tasa mensual {selectedLoan.rate_basis_points / 100}{" "}
-                      % sobre el capital original. El nuevo periodo comienza el
-                      día siguiente al vencimiento del periodo anterior y dura cuatro semanas.
-                    </p>
-                    <p>
-                      Inicio:{" "}
-                      {selectedPeriod
-                        ? dateLabel(addDays(selectedPeriod.end_date, 1))
-                        : "Periodo no disponible"}
-                      {selectedPeriod && <> · Fin: {dateLabel(addDays(selectedPeriod.end_date, 29))}</>}
-                    </p>
-                    {refinancingBlock(selectedLoan) && (
-                      <p className="rounded-lg bg-amber-50 p-3 text-amber-800">
-                        {refinancingBlock(selectedLoan)}
-                      </p>
-                    )}
+                    <p>Misma tasa mensual {selectedLoan.rate_basis_points / 100} % sobre el capital original. El interés anterior debe estar pagado y el periodo terminado.</p>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <label>Fecha de refinanciación
+                        <input type="date" required value={refinanceStart} min={selectedPeriod ? addDays(selectedPeriod.end_date, 1) : undefined} max={today} disabled={busy} onChange={event => setRefinanceDraft({ key: refinanceKey, start: event.target.value, months: refinanceMonths })} />
+                      </label>
+                      <label>Plazo de refinanciación
+                        <select aria-label="Plazo de refinanciación" value={refinanceMonths} disabled={busy} onChange={event => setRefinanceDraft({ key: refinanceKey, start: refinanceStart, months: Number(event.target.value) as 1 | 2 })}>
+                          <option value="1">1 mes · 4 cuotas semanales</option>
+                          <option value="2">2 meses · 8 cuotas semanales</option>
+                        </select>
+                      </label>
+                    </div>
+                    {refinanceError && <p className="rounded-lg bg-amber-50 p-3 text-amber-800">{refinanceError}</p>}
+                    {refinancePreview && <div className="space-y-3 rounded-xl bg-blue-50 p-4">
+                      <p>Inicio: {dateLabel(refinancePreview.startDate)} · Fin: {dateLabel(refinancePreview.endDate)}</p>
+                      <p>Capital pendiente: {money(refinancePreview.pendingCapital)} · Nuevo interés: {money(refinancePreview.interestCents)} · Total: <strong>{money(refinancePreview.totalCents)}</strong></p>
+                      <ul className="grid gap-2 sm:grid-cols-2">{refinancePreview.installments.map(quota => <li key={quota.number}>Cuota {quota.number} · {dateLabel(quota.dueDate)} · {money(quota.scheduledCents)}</li>)}</ul>
+                    </div>}
                     <Button
-                      disabled={busy || Boolean(refinancingBlock(selectedLoan))}
-                      onClick={() =>
-                        mutate(
-                          "refinance_loan",
-                          { p_loan: selected },
-                          `¿Refinanciar del ${selectedPeriod ? dateLabel(addDays(selectedPeriod.end_date, 1)) : "—"} al ${selectedPeriod ? dateLabel(addDays(selectedPeriod.end_date, 29)) : "—"} con la misma tasa sobre el capital original? Se conservará el historial previo.`,
-                        )
-                      }
+                      disabled={busy || Boolean(refinanceError) || !refinancePreview}
+                      onClick={() => refinancePreview && mutate("refinance_loan", { p_loan: selected, p_start: refinancePreview.startDate, p_months: refinancePreview.months }, `¿Refinanciar por ${refinancePreview.months} mes(es), del ${dateLabel(refinancePreview.startDate)} al ${dateLabel(refinancePreview.endDate)}, con interés de ${money(refinancePreview.interestCents)} y total de ${money(refinancePreview.totalCents)}? Se conservará el historial previo.`)}
                     >
                       <RefreshCw size={16} /> Confirmar refinanciación
                     </Button>

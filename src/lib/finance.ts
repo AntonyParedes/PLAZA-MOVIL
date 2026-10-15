@@ -84,6 +84,8 @@ export function scheduleRefinancing(input: {
   asOfDate: string;
   existingRateBasisPoints: number;
   interestSettlementDate: string;
+  startDate?: string;
+  months?: 1 | 2;
 }) {
   monetary(input.originalCapital);
   requireApprovedProduct(input.originalCapital, input.existingRateBasisPoints, 1);
@@ -96,22 +98,27 @@ export function scheduleRefinancing(input: {
   if (input.interestSettlementDate > input.asOfDate) throw new Error('El interés no puede figurar pagado en una fecha futura.');
   const start = contractualDate(input.currentPeriodEndDate);
   start.setUTCDate(start.getUTCDate() + 1);
-  const startDate = start.toISOString().slice(0, 10);
-  const originalPlan = scheduleLoan(input.originalCapital, input.existingRateBasisPoints, 1, startDate);
+  const startDate = input.startDate ?? start.toISOString().slice(0, 10);
+  contractualDate(startDate);
+  if (startDate <= input.currentPeriodEndDate || startDate > input.asOfDate) throw new Error('La fecha de refinanciación debe ser posterior al vencimiento anterior y no puede ser futura.');
+  const months = input.months ?? 1;
+  const originalPlan = scheduleLoan(input.originalCapital, input.existingRateBasisPoints, months, startDate);
   const total = BigInt(input.pendingCapital) + BigInt(originalPlan.interestCents);
   if (total > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Deuda fuera de rango.');
-  const base = total / 4n;
-  const remainder = Number(total % 4n);
+  const count = months * 4;
+  const base = total / BigInt(count);
+  const remainder = Number(total % BigInt(count));
   return {
     originalCapital: input.originalCapital,
     pendingCapital: input.pendingCapital,
     rateBasisPoints: input.existingRateBasisPoints,
+    months,
     startDate,
     endDate: originalPlan.endDate,
     interestCents: originalPlan.interestCents,
     totalCents: Number(total),
     installments: originalPlan.installments.map((row, index) => ({
-      ...row, scheduledCents: Number(base) + (index >= 4 - remainder ? 1 : 0),
+      ...row, scheduledCents: Number(base) + (index >= count - remainder ? 1 : 0),
     })),
   };
 }

@@ -100,3 +100,9 @@ Las cuotas vencidas dejan de bloquear la operación. Interfaz y RPC 005 exigen p
 ## Préstamos con monto ingresado (15/10/2026)
 
 El formulario reemplaza la lista de productos por Monto del préstamo y Plazo del préstamo. Hasta S/500 usa 7 % mensual; importes mayores usan 6 %. Permite montos positivos con céntimos, uno o dos meses, vista previa de cuatro u ocho cuotas y confirmación del total. Cambiar monto o plazo invalida la vista previa anterior. La RPC valida la misma política. La refinanciación mantiene tasa original, interés pagado y periodo terminado; comienza el día siguiente al vencimiento anterior. Si el servidor responde con las reglas antiguas, el error informa que falta aplicar SQL 006 y ofrece acceso al archivo.
+
+## Refinanciación con fecha y plazo seleccionables
+
+El detalle del préstamo permite Fecha de refinanciación y Plazo de refinanciación (uno o dos meses). La propuesta inicial mantiene el día siguiente al vencimiento y un mes, pero el administrador puede elegir una fecha posterior hasta hoy y ocho cuotas. El interés se multiplica por los meses sobre capital original; las cuotas distribuyen capital pendiente y el nuevo interés. Muestra fechas, importe de interés, total y cada cuota antes de confirmar. Cambiar de préstamo o de periodo vigente reinicia la propuesta y evita arrastrar fechas de otra cuenta.
+
+La migración 007 incorpora los montos flexibles de 006 y el nuevo RPC de refinanciación con fecha/plazo. Conserva la llamada anterior de dos argumentos para clientes antiguos, con validación de administrador y solicitudes idempotentes. Los pagos e históricos existentes no se recalculan.

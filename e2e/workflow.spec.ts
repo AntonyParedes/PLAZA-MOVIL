@@ -623,7 +623,7 @@ test("pago confirmado mantiene el RPC, muestra éxito y bloquea refinanciación 
   await expect(
     sheet.getByText("Pago registrado correctamente.", { exact: true }),
   ).toBeVisible();
-  await sheet.getByText("Refinanciar un mes", { exact: true }).click();
+  await sheet.getByText("Refinanciar préstamo", { exact: true }).click();
   await expect(
     sheet.getByRole("button", {
       name: "Confirmar refinanciación",
@@ -640,7 +640,7 @@ test("pago confirmado mantiene el RPC, muestra éxito y bloquea refinanciación 
     .filter({ hasText: "Diego Puntual" })
     .getByRole("button", { name: "Ver préstamo", exact: true })
     .click();
-  await sheet.getByText("Refinanciar un mes", { exact: true }).click();
+  await sheet.getByText("Refinanciar préstamo", { exact: true }).click();
   await expect(
     sheet.getByRole("button", {
       name: "Confirmar refinanciación",
@@ -1339,7 +1339,7 @@ for (const width of [375, 1440]) {
     await navigateModule(page, "Panel general");
     await page.getByRole("button", { name: "Ver detalle de Luis Trabajador", exact: true }).click();
     const detail = page.getByRole("dialog");
-    await detail.getByText("Refinanciar un mes", { exact: true }).click();
+    await detail.getByText("Refinanciar préstamo", { exact: true }).click();
     await expect(detail.getByText("Hay cuotas vencidas pendientes de pago.")).toHaveCount(0);
     const confirm = detail.getByRole("button", { name: "Confirmar refinanciación", exact: true });
     await expect(confirm).toBeEnabled();
@@ -1363,7 +1363,7 @@ for (const endOffset of [0, 1]) {
     await navigateModule(page, "Panel general");
     await page.getByRole("button", { name: "Ver detalle de Luis Trabajador", exact: true }).click();
     const detail = page.getByRole("dialog");
-    await detail.getByText("Refinanciar un mes", { exact: true }).click();
+    await detail.getByText("Refinanciar préstamo", { exact: true }).click();
     await expect(detail.getByText(/El periodo aún no ha terminado/)).toBeVisible();
     await expect(detail.getByRole("button", { name: "Confirmar refinanciación", exact: true })).toBeDisabled();
     expect(calls).toHaveLength(0);
@@ -1419,9 +1419,50 @@ test("servidor antiguo explica que falta aplicar la actualización de Supabase",
   await navigateModule(page, "Panel general");
   await page.getByRole("button", { name: "Ver detalle de Luis Trabajador", exact: true }).click();
   const detail = page.getByRole("dialog");
-  await detail.getByText("Refinanciar un mes", { exact: true }).click();
+  await detail.getByText("Refinanciar préstamo", { exact: true }).click();
   page.once("dialog", dialog => dialog.accept());
   await detail.getByRole("button", { name: "Confirmar refinanciación", exact: true }).click();
   await expect(detail.getByText(/Actualización de Supabase pendiente/)).toBeVisible();
-  await expect(detail.getByRole("link", { name: "Abrir actualización SQL 006" })).toHaveAttribute("href", /202610150006_flexible_loans_and_refinancing.sql$/);
+  await expect(detail.getByRole("link", { name: "Abrir actualización SQL 007" })).toHaveAttribute("href", /202610150007_refinance_date_and_term.sql$/);
 });
+
+for (const width of [375, 1440]) {
+  test(`refinanciación elige fecha y ocho cuotas con revisión y confirmación a ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const fixtures = await dashboardFixtures();
+    const { limaDate, addDays, dateLabel } = await import("../src/lib/portal");
+    const today = limaDate();
+    fixtures.loan_periods[1].end_date = addDays(today, -7);
+    const calls = await mockSupabase(page, "administrador", fixtures);
+    await login(page);
+    await navigateModule(page, "Panel general");
+    await page.getByRole("button", { name: "Ver detalle de Luis Trabajador", exact: true }).click();
+    const detail = page.getByRole("dialog");
+    await detail.getByText("Refinanciar préstamo", { exact: true }).click();
+    const date = detail.getByLabel("Fecha de refinanciación", { exact: true });
+    await expect(date).toHaveValue(addDays(today, -6));
+    await date.fill(addDays(today, -2));
+    await detail.getByRole("combobox", { name: "Plazo de refinanciación", exact: true }).selectOption("2");
+    await expect(detail.getByText(/Nuevo interés:/)).toContainText("S/ 120.00");
+    await expect(detail.getByText(/Nuevo interés:/)).toContainText("S/ 930.00");
+    await expect(detail.getByText(/Cuota 8 ·/)).toContainText("S/ 116.25");
+    await expect(detail.getByText(/Cuota 8 ·/)).toContainText(dateLabel(addDays(today, 54)));
+    await date.fill(addDays(today, 1));
+    const confirm = detail.getByRole("button", { name: "Confirmar refinanciación", exact: true });
+    await expect(confirm).toBeDisabled();
+    await date.fill(addDays(today, -7));
+    await expect(confirm).toBeDisabled();
+    await date.fill(addDays(today, -2));
+    await expect(confirm).toBeEnabled();
+    page.once("dialog", dialog => dialog.dismiss());
+    await confirm.click();
+    expect(calls).toHaveLength(0);
+    await page.screenshot({path:`test-results/refinance-options-${width}.png`,fullPage:true});
+    page.once("dialog", dialog => dialog.accept());
+    await confirm.click();
+    await expect.poll(() => calls.length).toBe(1);
+    expect(calls[0].name).toBe("refinance_loan");
+    expect(calls[0].body).toMatchObject({p_loan:"loan-1",p_start:addDays(today,-2),p_months:2});
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  });
+}

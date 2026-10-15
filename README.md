@@ -29,7 +29,7 @@ No crear worktrees durante configuración: las tareas de nube ya están aisladas
 
 1. Crear proyecto Supabase. Copiar `.env.example` a `.env.local` (ignorado), sin sobreescribir configuración existente.
 2. Configurar `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. La clave publicable es pública; jamás utilizar `service_role` en una variable `NEXT_PUBLIC_*`.
-3. Aplicar primero `supabase/migrations/202610090001_clients_security.sql` después `supabase/migrations/202610090002_financial_operations.sql`, `supabase/migrations/202610090003_client_stand.sql` y `supabase/migrations/202610100004_loan_2000.sql` y `supabase/migrations/202610140005_refinance_after_period.sql` y `supabase/migrations/202610150006_flexible_loans_and_refinancing.sql` en SQL Editor una sola vez cada una. Son migraciones iniciales, no scripts para ejecutar repetidamente.
+3. Aplicar primero `supabase/migrations/202610090001_clients_security.sql` después `supabase/migrations/202610090002_financial_operations.sql`, `supabase/migrations/202610090003_client_stand.sql` y `supabase/migrations/202610100004_loan_2000.sql` y `supabase/migrations/202610140005_refinance_after_period.sql` y `supabase/migrations/202610150006_flexible_loans_and_refinancing.sql` y `supabase/migrations/202610150007_refinance_date_and_term.sql` en SQL Editor una sola vez cada una. Son migraciones iniciales, no scripts para ejecutar repetidamente.
 4. Crear usuarios desde Supabase Authentication con contraseña segura; desactivar registro público en los ajustes de Auth. No hay registro de usuarios desde la aplicación.
 5. El responsable del proyecto asigna el perfil desde SQL Editor (UUID real del usuario):
 
@@ -118,3 +118,7 @@ Las pruebas de `operations.test.ts` conservan la verificación de migraciones hi
 Para proyectos con las migraciones iniciales instaladas, ejecutar únicamente `supabase/migrations/202610150006_flexible_loans_and_refinancing.sql`. Esta actualización incluye la regla de refinanciación de 005, por lo que resuelve ambas funciones en una sola transacción aunque no se haya aplicado 005. No modifica los préstamos ni pagos anteriores. También requiere desplegar esta versión del frontend: un redeploy de código antiguo conserva el bloqueo visual anterior.
 
 El nuevo administrador se crea desde Supabase Authentication con el otro correo y se asigna `administrador` en `profiles`. Sigue la sección «Crear otro administrador» de [Accesos](docs/ACCESO-CONSULTA.md). El frontend no administra contraseñas ni permite elevar roles.
+
+### Actualización 007: fecha y plazo del refinanciamiento
+
+Aplicar `supabase/migrations/202610150007_refinance_date_and_term.sql` en SQL Editor sobre un proyecto con las migraciones iniciales instaladas. Incluye la creación de préstamos flexibles y la corrección de cuotas vencidas anteriores; no es necesario repetir 005/006 si faltan. Permite elegir fecha posterior al vencimiento y no futura, y uno o dos meses. Genera cuatro u ocho cuotas, con la misma tasa sobre el capital original por los meses elegidos. Conserva compatibilidad con llamadas antiguas de dos argumentos e idempotencia. La interfaz debe desplegarse junto con esta actualización del servidor.
