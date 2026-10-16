@@ -293,7 +293,7 @@ test("conserva el acceso al volver a la pestaña y al restaurar la sesión; sali
   ).toBeVisible();
 });
 
-test("panel general simplificado conserva seis columnas, prioriza atraso y despliega identificación y WhatsApp", async ({
+test("panel general simplificado conserva siete columnas, prioriza atraso y despliega identificación y WhatsApp", async ({
   page,
 }) => {
   const { limaDate, addDays } = await import("../src/lib/portal");
@@ -385,6 +385,7 @@ test("panel general simplificado conserva seis columnas, prioriza atraso y despl
   ).toHaveText([
     "Prestatario",
     "Fecha del préstamo",
+    "N.º de cuotas",
     "Día de pago",
     "Saldo",
     "Cuota semanal",
@@ -1074,7 +1075,7 @@ for (const width of [375, 1440])
     await expect(maria).not.toContainText("Vence hoy");
     await expect(luis).not.toHaveClass(/payment-due-today/);
     await expect(luis).toContainText("En mora");
-    await expect(table.locator("thead th")).toHaveCount(6);
+    await expect(table.locator("thead th")).toHaveCount(7);
     const light = await ana.evaluate(
       (el) => getComputedStyle(el).backgroundColor,
     );
@@ -1313,7 +1314,7 @@ for (const role of ["administrador", "jefe"] as const) {
       await navigateModule(page, "Panel general");
       await expect(page.getByRole("heading", { name: "Panel general", exact: true })).toBeVisible();
       const table = page.getByRole("table", { name: "Panel general de préstamos" });
-      await expect(table.getByRole("columnheader")).toHaveText(["Prestatario", "Fecha del préstamo", "Día de pago", "Saldo", "Cuota semanal", "Estado"]);
+      await expect(table.getByRole("columnheader")).toHaveText(["Prestatario", "Fecha del préstamo", "N.º de cuotas", "Día de pago", "Saldo", "Cuota semanal", "Estado"]);
       await expect(page.getByRole("button", { name: "Nuevo préstamo", exact: true })).toHaveCount(0);
       await table.getByRole("button", { name: "Ver detalle de Ana Socia", exact: true }).click();
       await expect(page.getByRole("dialog")).toContainText("Ana Socia");
@@ -1466,3 +1467,91 @@ for (const width of [375, 1440]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
   });
 }
+
+async function returnToTab(page: Page) {
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+}
+
+for (const width of [375, 1440]) {
+  test(`volver a pestaña conserva detalle, monto escrito y posición durante actualización lenta a ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const fixtures = await dashboardFixtures();
+    await mockSupabase(page, "administrador", fixtures);
+    await login(page);
+    await navigateModule(page, "Panel general");
+    await page.getByRole("button", { name: "Ver detalle de Ana Socia", exact: true }).click();
+    const detail = page.getByRole("dialog");
+    const amount = detail.getByLabel("Monto (S/)", { exact: true });
+    await amount.fill("123.45");
+    const originalInput = await amount.elementHandle();
+    const top = await detail.locator(".overscroll-contain").evaluate(element => element.scrollTop);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let refreshing = false;
+    await page.route(/https:\/\/pm-e2e\.supabase\.co\/rest\/v1\/loans(?:\?|$)/, async route => {
+      if (route.request().method() === "GET") { refreshing = true; await gate; }
+      await route.fallback();
+    });
+    await returnToTab(page);
+    await expect.poll(() => refreshing).toBe(true);
+    await expect(detail).toBeVisible();
+    await expect(amount).toHaveValue("123.45");
+    expect(await originalInput!.evaluate(element => element.isConnected)).toBe(true);
+    expect(await detail.locator(".overscroll-contain").evaluate(element => element.scrollTop)).toBe(top);
+    await expect(page.getByText("Cargando operaciones…", { exact: true })).toHaveCount(0);
+    fixtures.loans[0].capital_pending = 71000;
+    release();
+    await expect(detail.getByText("S/ 710.00", { exact: true }).first()).toBeVisible();
+    await expect(amount).toHaveValue("123.45");
+    expect(await originalInput!.evaluate(element => element.isConnected)).toBe(true);
+  });
+}
+
+test("clientes mantiene saldos, WhatsApp y cuenta abierta mientras sincroniza", async ({ page }) => {
+  const fixtures = await dashboardFixtures();
+  await mockSupabase(page, "jefe", fixtures);
+  await login(page);
+  await navigateModule(page, "Clientes");
+  const client = page.getByRole("article", { name: "Ana Socia", exact: true });
+  await client.getByRole("button", { name: /^Ana Socia/ }).click();
+  const account = client.getByRole("region", { name: "Cuenta de Ana Socia" });
+  await expect(account).toBeVisible();
+  await expect(client.getByRole("link", { name: "WhatsApp de Ana Socia" })).toBeVisible();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let refreshing = false;
+  await page.route(/https:\/\/pm-e2e\.supabase\.co\/rest\/v1\/loans(?:\?|$)/, async route => {
+    if (route.request().method() === "GET") { refreshing = true; await gate; }
+    await route.fallback();
+  });
+  await returnToTab(page);
+  await expect.poll(() => refreshing).toBe(true);
+  await expect(account).toBeVisible();
+  await expect(client.getByRole("link", { name: "WhatsApp de Ana Socia" })).toBeVisible();
+  await expect(client.getByText("Cargando…", { exact: true })).toHaveCount(0);
+  await expect(client.getByRole("definition").filter({ hasText: "S/ 870.00" }).first()).toBeVisible();
+  fixtures.loans[0].capital_pending = 61000;
+  release();
+  await expect(client.getByText("S/ 670.00", { exact: true }).first()).toBeVisible();
+  await expect(account).toBeVisible();
+});
+
+test("foco de captura sin cambio de visibilidad no vuelve a solicitar operaciones", async ({ page }) => {
+  await page.clock.install();
+  await mockSupabase(page, "administrador", await dashboardFixtures());
+  await login(page);
+  await expect(page.getByText("S/ 2,430.00", { exact: true })).toBeVisible();
+  let requests = 0;
+  await page.route(/https:\/\/pm-e2e\.supabase\.co\/rest\/v1\/loans(?:\?|$)/, async route => { requests++; await route.fallback(); });
+  await page.evaluate(() => {
+    for (let i = 0; i < 3; i++) { window.dispatchEvent(new Event("focus")); document.dispatchEvent(new Event("visibilitychange")); }
+  });
+  await page.clock.runFor(600);
+  expect(requests).toBe(0);
+  await expect(page.getByText("S/ 2,430.00", { exact: true })).toBeVisible();
+});

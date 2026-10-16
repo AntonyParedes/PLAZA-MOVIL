@@ -168,3 +168,10 @@ test("periodo original vencido no sustituye la fecha vigente de una refinanciaci
     false,
   );
 });
+
+test('cuotas originales junto a la fecha no se sustituyen por las del refinanciamiento', () => {
+ const periods: Period[] = [{...original,months:2,is_current:false},{...original,id:'renewed',number:2,months:1,is_current:true}];
+ assert.equal(collectionStatus(loan,periods,[],'2026-10-16').originalInstallments,8);
+ assert.equal(collectionStatus(loan,[{...periods[0],months:1},{...periods[1],months:2}],[],'2026-10-16').originalInstallments,4);
+ assert.equal(collectionStatus(loan,[periods[1]],[],'2026-10-16').originalInstallments,null);
+});

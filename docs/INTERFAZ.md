@@ -81,17 +81,17 @@ Cobros semanales e Historial de pagos ya no son módulos del menú. El Dashboard
 
 Inicio prioriza Capital pendiente, Total cobrado, Cobros del día y Cuotas vencidas. Capital prestado, Intereses cobrados y recuentos de préstamos quedan en «Más indicadores de cartera». La agenda permite Hoy, Esta semana, Vencidos y Próximos 7 días, conservando el registro de pago y WhatsApp. Hoy/semana incluyen cuotas pagadas; vencidos/próximos muestran solo cuotas con saldo pendiente. Las cuotas históricas no contaminan la agenda.
 
-La cartera de Préstamos conserva exactamente seis columnas; el nuevo préstamo se prepara junto a esta cartera y mantiene revisión de cronograma y confirmación del desembolso. Los detalles concentran pagos, liquidación y refinanciación. Reportes centraliza las exportaciones: Excel completo, resumen de cobranza filtrable y todos los informes anteriores en Excel/CSV, junto a agregados por semana/mes.
+La cartera de Préstamos conserva siete columnas; el nuevo préstamo se prepara junto a esta cartera y mantiene revisión de cronograma y confirmación del desembolso. Los detalles concentran pagos, liquidación y refinanciación. Reportes centraliza las exportaciones: Excel completo, resumen de cobranza filtrable y todos los informes anteriores en Excel/CSV, junto a agregados por semana/mes.
 
 Para evitar recorridos repetidos se mantienen índices en memoria de clientes, préstamos y periodos vigentes. Se recalculan cuando cambia su origen, sin alterar consultas de Supabase ni importes.
 
 ## Consulta y sincronización
 
-El rol `jefe` se identifica como Solo lectura y conserva los permisos de consulta existentes. La interfaz vuelve a leer clientes y operaciones tras eventos de Supabase Realtime, con respaldo cada 30 segundos y al recuperar el foco. El responsable debe habilitar la publicación Realtime y crear el usuario conforme a `docs/ACCESO-CONSULTA.md`. No se crean cuentas ni se modifica la publicación de producción desde el navegador.
+El rol `jefe` se identifica como Solo lectura y conserva los permisos de consulta existentes. La interfaz vuelve a leer clientes y operaciones tras eventos de Supabase Realtime, con respaldo cada 30 segundos y al volver de una pestaña oculta a visible. El responsable debe habilitar la publicación Realtime y crear el usuario conforme a `docs/ACCESO-CONSULTA.md`. No se crean cuentas ni se modifica la publicación de producción desde el navegador.
 
 ## Panel general con acceso directo
 
-Se restaura su entrada lateral y su título propio por la prioridad operativa de cobranza. Conserva las seis columnas, filtros por condición y estado, búsqueda por nombre/DNI/stand, urgencia, mora y resaltado del día. Abre el mismo detalle autorizado. El formulario de nuevo préstamo aparece solo en Préstamos; ambas vistas reutilizan la tabla y los cálculos, sin duplicar implementación ni añadir consultas por navegar entre ellas. La sincronización y el rol de consulta se mantienen.
+Se restaura su entrada lateral y su título propio por la prioridad operativa de cobranza. Conserva siete columnas, filtros por condición y estado, búsqueda por nombre/DNI/stand, urgencia, mora y resaltado del día. Abre el mismo detalle autorizado. El formulario de nuevo préstamo aparece solo en Préstamos; ambas vistas reutilizan la tabla y los cálculos, sin duplicar implementación ni añadir consultas por navegar entre ellas. La sincronización y el rol de consulta se mantienen.
 
 ## Refinanciación después del periodo (14/10/2026)
 
@@ -106,3 +106,9 @@ El formulario reemplaza la lista de productos por Monto del préstamo y Plazo de
 El detalle del préstamo permite Fecha de refinanciación y Plazo de refinanciación (uno o dos meses). La propuesta inicial mantiene el día siguiente al vencimiento y un mes, pero el administrador puede elegir una fecha posterior hasta hoy y ocho cuotas. El interés se multiplica por los meses sobre capital original; las cuotas distribuyen capital pendiente y el nuevo interés. Muestra fechas, importe de interés, total y cada cuota antes de confirmar. Cambiar de préstamo o de periodo vigente reinicia la propuesta y evita arrastrar fechas de otra cuenta.
 
 La migración 007 incorpora los montos flexibles de 006 y el nuevo RPC de refinanciación con fecha/plazo. Conserva la llamada anterior de dos argumentos para clientes antiguos, con validación de administrador y solicitudes idempotentes. Los pagos e históricos existentes no se recalculan.
+
+## Actualización sin parpadeos y cuotas originales (16/10/2026)
+
+La pantalla de carga financiera se muestra únicamente antes de la primera respuesta válida. Las consultas posteriores mantienen montados el detalle, formularios, borradores, foco y posición; sustituyen los datos al recibir una respuesta válida. Clientes conserva saldos, ganancias, estado y WhatsApp durante la sincronización, con aviso si falla la actualización. El estado de actualización financiero se anuncia sin insertar un bloque que desplace el contenido.
+
+Los cambios de foco de ventana sin ocultar la página ya no disparan consultas. El paso real de oculto a visible sí sincroniza; se conservan Realtime y el respaldo periódico de 30 segundos. Las siete columnas del Panel general incluyen N.º de cuotas inmediatamente después de Fecha del préstamo: se obtiene del periodo original (meses × 4), sin sustituirlo por el plazo de una refinanciación. Si falta el periodo original se muestra «—». El CSV del panel incluye el mismo dato. No requiere una migración de Supabase.

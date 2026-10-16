@@ -6,6 +6,7 @@ export function collectionStatus(
   today: string,
   moraAfterDays = 7,
 ) {
+  const original = periods.find(p => p.loan_id === loan.id && p.number === 1);
   const current = periods.find((p) => p.loan_id === loan.id && p.is_current);
   const rows = installments
     .filter((i) => i.loan_id === loan.id && i.is_current)
@@ -42,9 +43,8 @@ export function collectionStatus(
     requiresSettlement,
     termEndDate: current?.end_date ?? null,
     refinanced: periods.some((p) => p.loan_id === loan.id && p.number > 1),
-    startDate:
-      periods.find((p) => p.loan_id === loan.id && p.number === 1)
-        ?.start_date ?? null,
+    startDate: original?.start_date ?? null,
+    originalInstallments: original ? original.months * 4 : null,
     balance,
     nextDate: next?.due_date ?? null,
     weeklyCents:

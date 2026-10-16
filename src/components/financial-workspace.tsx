@@ -77,6 +77,7 @@ export default function FinancialWorkspace({
     installments: Installment[];
   }>({ loans: [], periods: [], payments: [], installments: [] });
   const [loading, setLoading] = useState(true);
+  const [hasData, setHasData] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -129,13 +130,15 @@ export default function FinancialWorkspace({
             fetchAll,
           ),
         );
-        if (active)
+        if (active) {
           setData({
             loans: loans as Loan[],
             periods: periods as Period[],
             payments: payments as Payment[],
             installments: installments as Installment[],
           });
+          setHasData(true);
+        }
       } catch (e) {
         if (active)
           setError(e instanceof Error ? e.message : "Error de conexión.");
@@ -421,6 +424,7 @@ export default function FinancialWorkspace({
     "Código stand",
     "Condición",
     "Fecha del préstamo",
+    "N.º de cuotas",
     "Saldo",
     "Cuota semanal",
     "Día de pago",
@@ -620,6 +624,7 @@ export default function FinancialWorkspace({
         client?.stand_code ?? "Por registrar",
         client?.member_type ?? "Por registrar",
         status.startDate ?? "",
+        status.originalInstallments ?? "",
         decimalSoles(status.balance),
         decimalSoles(status.weeklyCents),
         status.nextDate ?? "",
@@ -667,11 +672,11 @@ export default function FinancialWorkspace({
       setExporting(false);
     }
   }
-  if (loading && revision === 0) return <LoadingSkeleton />;
+  if (loading && !hasData) return <LoadingSkeleton />;
   return (
     <section className="space-y-6" aria-busy={loading}>
       {loading && (
-        <p role="status" className="text-sm text-blue-700">
+        <p role="status" className="sr-only">
           Actualizando saldos…
         </p>
       )}
@@ -836,6 +841,7 @@ export default function FinancialWorkspace({
             headers={[
               "Prestatario",
               "Fecha del préstamo",
+              "N.º de cuotas",
               "Día de pago",
               "Saldo",
               "Cuota semanal",
@@ -871,6 +877,7 @@ export default function FinancialWorkspace({
                   {client?.full_name ?? "Cliente no disponible"}
                 </button>,
                 status.startDate ? dateLabel(status.startDate) : "—",
+                status.originalInstallments ?? "—",
                 <div key="day" className="space-y-2">
                   <span className="capitalize">
                     {paymentDate ? weekdayLabel(paymentDate) : "—"}

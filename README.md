@@ -68,7 +68,7 @@ Clientes: código de stand y condición socio/trabajador son obligatorios al reg
 
 **En un proyecto existente que ya ejecutó las migraciones 001 y 002, ejecutar únicamente `supabase/migrations/202610090003_client_stand.sql`, una sola vez. No repetir las migraciones iniciales.** En un proyecto nuevo, aplicar las tres en orden. Esta migración agrega columnas y validaciones, sin borrar ni recalcular préstamos o pagos.
 
-Panel general: una fila por préstamo y seis columnas: Prestatario, Fecha del préstamo, Día de pago (día de la semana), Saldo, Cuota semanal y Estado. Primero aparecen los préstamos con mayor atraso; los liquidados quedan al final. Verde indica puntual/liquidado, ámbar atraso y rojo mora. Pulsar el nombre abre identificación, fechas, refinanciación, cronograma, pagos y WhatsApp. Saldo incluye capital e interés pendientes; la cuota semanal es el importe programado. Busca por nombre/DNI/stand y filtra por condición y estado. Excel completo y CSV mantienen toda la información.
+Panel general: una fila por préstamo y siete columnas: Prestatario, Fecha del préstamo, N.º de cuotas, Día de pago (día de la semana), Saldo, Cuota semanal y Estado. Primero aparecen los préstamos con mayor atraso; los liquidados quedan al final. Verde indica puntual/liquidado, ámbar atraso y rojo mora. Pulsar el nombre abre identificación, fechas, refinanciación, cronograma, pagos y WhatsApp. Saldo incluye capital e interés pendientes; la cuota semanal es el importe programado. Busca por nombre/DNI/stand y filtra por condición y estado. Excel completo y CSV mantienen toda la información.
 
 
 Clasificación aprobada: sin cuotas vencidas pendientes = Puntual; de 1 a 6 días = «Se atrasó X días»; desde 7 días = En mora. Se cuenta desde la cuota vigente impaga más antigua, incluyendo pagos parciales, según fecha de Lima. Las cuotas históricas de refinanciaciones no duplican deuda ni atraso. La clasificación es visual y no genera cargos. La fecha de Lima se actualiza cada minuto mientras el panel está abierto.
@@ -105,7 +105,7 @@ El botón luna/sol de la barra superior y del acceso alterna modo día y noche c
 
 ### Consulta y actualización automática
 
-El acceso `jefe` permite visualizar sin realizar operaciones de escritura. Para crear una cuenta y habilitar eventos de Supabase Realtime, sigue [Acceso de consulta](docs/ACCESO-CONSULTA.md). Sin eventos, la interfaz conserva un respaldo de actualización cada 30 segundos y al recuperar el foco. Estos pasos de administración no se ejecutan desde el navegador de PM Créditos.
+El acceso `jefe` permite visualizar sin realizar operaciones de escritura. Para crear una cuenta y habilitar eventos de Supabase Realtime, sigue [Acceso de consulta](docs/ACCESO-CONSULTA.md). Sin eventos, la interfaz conserva un respaldo de actualización cada 30 segundos y al volver de una pestaña oculta a visible. Estos pasos de administración no se ejecutan desde el navegador de PM Créditos.
 
 ### Actualizar la refinanciación en un proyecto existente
 

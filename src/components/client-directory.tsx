@@ -35,6 +35,7 @@ export default function ClientDirectory({
     installments: [],
   });
   const [loading, setLoading] = useState(true);
+  const [hasData, setHasData] = useState(false);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   const liveRevision = useLiveRevision();
@@ -70,8 +71,10 @@ export default function ClientDirectory({
             fetchRows,
           ),
         );
-        if (active)
+        if (active) {
           setData({ loans, periods, payments, installments } as AccountData);
+          setHasData(true);
+        }
       } catch {
         if (active)
           setError("No se pudieron cargar los préstamos. Intenta actualizar.");
@@ -89,7 +92,7 @@ export default function ClientDirectory({
       {error && <Notice error>{error}</Notice>}
       <div className="flex items-center justify-between gap-3">
         <p role="status" className="text-xs text-slate-500">
-          {loading
+          {loading && !hasData
             ? "Actualizando préstamos…"
             : "Pulsa un nombre para ver su cuenta. WhatsApp prepara el mensaje; tú lo envías."}
         </p>
@@ -121,7 +124,7 @@ export default function ClientDirectory({
           account.state === "Atrasado"
             ? `Se atrasó ${account.daysLate} días`
             : account.state;
-        const ready = !loading && !error;
+        const ready = hasData;
         return (
           <article
             key={client.id}

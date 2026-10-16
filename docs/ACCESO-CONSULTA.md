@@ -48,7 +48,7 @@ end $$;
 commit;
 ```
 
-Sin habilitar la publicación, o si Realtime está desconectado, los datos se consultan automáticamente cada 30 segundos y al recuperar el foco. Una pestaña oculta evita consultas periódicas; se actualiza al volver. Este respaldo no garantiza actualización instantánea.
+Sin habilitar la publicación, o si Realtime está desconectado, los datos se consultan automáticamente cada 30 segundos y al volver de una pestaña oculta a visible. Una pestaña oculta evita consultas periódicas; se actualiza al volver. Este respaldo no garantiza actualización instantánea.
 
 ## Validación pendiente en producción
 

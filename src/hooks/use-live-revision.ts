@@ -26,14 +26,17 @@ export function useLiveRevision(enabled = true) {
     });
     // Catch missed changes while offline or when Realtime is not enabled on the project.
     const timer = setInterval(refresh, 30000);
-    document.addEventListener("visibilitychange", refresh);
-    window.addEventListener("focus", refresh);
+    let wasHidden = document.visibilityState === "hidden";
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") { wasHidden = true; return; }
+      if (wasHidden) { wasHidden = false; refresh(); }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       active = false;
       clearInterval(timer);
       if (pending) clearTimeout(pending);
-      document.removeEventListener("visibilitychange", refresh);
-      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisibility);
       void supabase.removeChannel(channel);
     };
   }, [enabled]);
