@@ -61,6 +61,12 @@ async function mockSupabase(
       const name = url.pathname.split("/").at(-1)!;
       calls.push({ name, body: request.postDataJSON() });
       body = "33333333-3333-4333-8333-333333333333";
+      if (name === "preview_client_deletion") body = tables.client_deletion_preview;
+      if (name === "delete_client") {
+        const id = request.postDataJSON().p_client;
+        tables.clients = (tables.clients as {id:string}[]).filter((client) => client.id !== id);
+        body = id;
+      }
     }
     if (
       url.pathname === "/rest/v1/clients" &&
@@ -1554,4 +1560,92 @@ test("foco de captura sin cambio de visibilidad no vuelve a solicitar operacione
   await page.clock.runFor(600);
   expect(requests).toBe(0);
   await expect(page.getByText("S/ 2,430.00", { exact: true })).toBeVisible();
+});
+
+
+test("eliminar cliente exige DNI y motivo, permite cancelar y actualiza la lista", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 900 });
+  await page.emulateMedia({ colorScheme: "dark" });
+  const tables = await dashboardFixtures();
+  const fixture = { ...tables, client_deletion_preview: {
+    client_id: "client-0", full_name: "Ana Socia", dni: "12345670", stand_code: "S-01",
+    loans_count: 1, payments_count: 2, balance_cents: "87000", paid_cents: "19000", confirmation_token: "a".repeat(32),
+  }};
+  const calls = await mockSupabase(page, "administrador", fixture);
+  await login(page);
+  await navigateModule(page, "Clientes");
+  const ana = page.getByRole("article", { name: "Ana Socia", exact: true });
+  await ana.getByRole("button", { name: /^Ana Socia/ }).click();
+  await ana.getByRole("button", { name: "Eliminar cliente Ana Socia", exact: true }).click();
+  let dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("irreversible");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await expect(dialog).toContainText("S/ 870.00");
+  await expect(dialog).toContainText("S/ 190.00");
+  await expect(dialog.getByRole("button", { name: "Eliminar definitivamente", exact: true })).toBeDisabled();
+  await dialog.getByRole("button", { name: "Cancelar", exact: true }).click();
+  expect(calls.some((c) => c.name === "delete_client")).toBe(false);
+  await ana.getByRole("button", { name: "Eliminar cliente Ana Socia", exact: true }).click();
+  dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Escribe el DNI del cliente para confirmar").fill("87654321");
+  await dialog.getByLabel("Motivo de la eliminación").fill("Registro por error");
+  await expect(dialog.getByRole("button", { name: "Eliminar definitivamente", exact: true })).toBeDisabled();
+  await dialog.getByLabel("Escribe el DNI del cliente para confirmar").fill("12345670");
+  await dialog.getByRole("button", { name: "Eliminar definitivamente", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(ana).toHaveCount(0);
+  await expect(page.getByRole("article", { name: "Luis Trabajador", exact: true })).toBeVisible();
+  expect(calls.filter((c) => c.name === "delete_client")).toEqual([{ name: "delete_client", body: {
+    p_client: "client-0", p_dni: "12345670", p_reason: "Registro por error", p_confirmation_token: "a".repeat(32),
+  }}]);
+});
+
+test("consulta no ofrece eliminar clientes", async ({ page }) => {
+  await mockSupabase(page, "jefe", await dashboardFixtures());
+  await login(page);
+  await navigateModule(page, "Clientes");
+  const ana = page.getByRole("article", { name: "Ana Socia", exact: true });
+  await ana.getByRole("button", { name: /^Ana Socia/ }).click();
+  await expect(ana.getByRole("region")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Eliminar cliente/ })).toHaveCount(0);
+});
+
+test("eliminación exige revisar de nuevo si cambia la deuda y explica si falta SQL", async ({ page }) => {
+  const calls = await mockSupabase(page, "administrador", await dashboardFixtures());
+  let changed = false;
+  await page.route("**/rest/v1/rpc/preview_client_deletion", async (route) => {
+    if (route.request().method() === "OPTIONS") { await route.fallback(); return; }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      client_id: "client-0", full_name: "Ana Socia", dni: "12345670", stand_code: "S-01",
+      loans_count: 1, payments_count: changed ? 2 : 1, balance_cents: changed ? "86000" : "87000", paid_cents: "19000", confirmation_token: (changed ? "b" : "a").repeat(32),
+    }) });
+  });
+  await page.route("**/rest/v1/rpc/delete_client", async (route) => {
+    if (route.request().method() === "OPTIONS") { await route.fallback(); return; }
+    changed = true;
+    await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ message: "Los datos cambiaron. Actualiza el resumen antes de eliminar", code: "P0001" }) });
+  });
+  await login(page);
+  await navigateModule(page, "Clientes");
+  const ana = page.getByRole("article", { name: "Ana Socia", exact: true });
+  await ana.getByRole("button", { name: /^Ana Socia/ }).click();
+  await ana.getByRole("button", { name: "Eliminar cliente Ana Socia", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("S/ 870.00");
+  await dialog.getByLabel("Escribe el DNI del cliente para confirmar").fill("12345670");
+  await dialog.getByLabel("Motivo de la eliminación").fill("Registro por error");
+  const confirm = dialog.getByRole("button", { name: "Eliminar definitivamente", exact: true });
+  await confirm.click();
+  await expect(dialog).toContainText("Los datos cambiaron");
+  await expect(confirm).toBeDisabled();
+  await dialog.getByRole("button", { name: "Actualizar resumen" }).click();
+  await expect(dialog).toContainText("S/ 860.00");
+  await expect(dialog.getByLabel("Escribe el DNI del cliente para confirmar")).toHaveValue("");
+  await expect(confirm).toBeDisabled();
+  await dialog.getByRole("button", { name: "Cancelar", exact: true }).click();
+  await page.route("**/rest/v1/rpc/preview_client_deletion", (route) => route.request().method() === "OPTIONS" ? route.fallback() : route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ code: "PGRST202", message: "Could not find the function in the schema cache" }) }));
+  await ana.getByRole("button", { name: "Eliminar cliente Ana Socia", exact: true }).click();
+  await expect(dialog).toContainText("202610190008_delete_client.sql");
+  await expect(confirm).toBeDisabled();
+  expect(calls.some((c) => c.name === "delete_client")).toBe(false);
 });

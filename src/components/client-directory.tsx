@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { ChevronDown, MessageCircle, Pencil, RefreshCw } from "lucide-react";
+import { ChevronDown, MessageCircle, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { useLiveRevision } from "@/hooks/use-live-revision";
 import { getSupabase } from "@/lib/supabase";
 import {
@@ -22,10 +22,12 @@ export default function ClientDirectory({
   clients,
   role,
   onEdit,
+  onDelete,
 }: {
   clients: DirectoryClient[];
   role: "administrador" | "jefe";
   onEdit: (client: DirectoryClient) => void;
+  onDelete: (client: DirectoryClient) => void;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [data, setData] = useState<AccountData>({
@@ -237,9 +239,12 @@ export default function ClientDirectory({
                     )}
                   </div>
                   {role === "administrador" && (
+                    <div className="flex flex-wrap gap-2">
                     <Button variant="outline" onClick={() => onEdit(client)}>
                       <Pencil size={15} /> Editar
                     </Button>
+                    <Button variant="outline" className="text-[var(--danger-text)]" onClick={() => onDelete(client)} aria-label={`Eliminar cliente ${client.full_name}`}><Trash2 size={15} /> Eliminar cliente</Button>
+                    </div>
                   )}
                 </div>
                 {ready ? (

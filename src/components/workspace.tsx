@@ -25,6 +25,7 @@ import { getSupabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import FinancialWorkspace from "@/components/financial-workspace";
 import ClientDirectory from "@/components/client-directory";
+import ClientDeletion from "@/components/client-deletion";
 import { ThemeToggle, ThemePreference } from "@/components/theme-toggle";
 import ImportReview from "@/components/import-review";
 
@@ -63,6 +64,8 @@ export default function Workspace() {
   const [memberFilter, setMemberFilter] = useState("todos");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
+  const [deleting, setDeleting] = useState<Client | null>(null);
+  const [clientRevision, setClientRevision] = useState(0);
   useEffect(() => {
     if (!supabase) return;
     let active = true;
@@ -79,6 +82,7 @@ export default function Workspace() {
         setMessage("");
         setShowForm(false);
         setEditing(null);
+        setDeleting(null);
         setSearch("");
         setMemberFilter("todos");
         setSection("dashboard");
@@ -136,7 +140,7 @@ export default function Workspace() {
     return () => {
       active = false;
     };
-  }, [userId, liveRevision]);
+  }, [userId, liveRevision, clientRevision]);
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -217,6 +221,7 @@ export default function Workspace() {
     setClients([]);
     setMessage("");
     setShowForm(false);
+    setDeleting(null);
   }
   const visible = clients.filter(
     (client) =>
@@ -226,6 +231,7 @@ export default function Workspace() {
       (memberFilter === "todos" || client.member_type === memberFilter),
   );
   function navigate(next: Section) {
+    setDeleting(null);
     setSection(next);
   }
   const notice = message && (
@@ -471,11 +477,18 @@ export default function Workspace() {
           <ClientDirectory
             clients={visible}
             role={role}
+            onDelete={setDeleting}
             onEdit={(client) => {
               setEditing(client);
               setShowForm(true);
             }}
           />
+          {deleting && role === "administrador" && <ClientDeletion key={deleting.id} client={deleting} onClose={() => setDeleting(null)} onDeleted={(id) => {
+            setClients((rows) => rows.filter((row) => row.id !== id));
+            setClientRevision((n) => n + 1);
+            setDeleting(null);
+            if (editing?.id === id) { setEditing(null); setShowForm(false); }
+          }} />}
           <Sheet
             open={showForm && role === "administrador"}
             onOpenChange={setShowForm}

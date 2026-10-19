@@ -122,3 +122,12 @@ El nuevo administrador se crea desde Supabase Authentication con el otro correo 
 ### Actualización 007: fecha y plazo del refinanciamiento
 
 Aplicar `supabase/migrations/202610150007_refinance_date_and_term.sql` en SQL Editor sobre un proyecto con las migraciones iniciales instaladas. Incluye la creación de préstamos flexibles y la corrección de cuotas vencidas anteriores; no es necesario repetir 005/006 si faltan. Permite elegir fecha posterior al vencimiento y no futura, y uno o dos meses. Genera cuatro u ocho cuotas, con la misma tasa sobre el capital original por los meses elegidos. Conserva compatibilidad con llamadas antiguas de dos argumentos e idempotencia. La interfaz debe desplegarse junto con esta actualización del servidor.
+
+
+## Eliminar un cliente registrado por error
+
+Solo el administrador puede hacerlo desde **Clientes → pulsar el nombre → Eliminar cliente**. Se muestra un resumen verificado de préstamos, pagos, saldo y total cobrado; es obligatorio escribir el DNI y un motivo. La eliminación es definitiva e incluye todos los préstamos, periodos, refinanciaciones, cuotas, pagos y sus aplicaciones de ese cliente. Sus importes dejan de figurar en los reportes. No elimina usuarios de Authentication ni perfiles de acceso. Conserva una constancia administrativa con autor, motivo, fecha e importes eliminados.
+
+**Para habilitar esta función, ejecutar `supabase/migrations/202610190008_delete_client.sql` en Supabase SQL Editor sobre la base existente y desplegar el código actualizado.** No repetir las migraciones iniciales. La migración solo agrega la función y su auditoría: no elimina clientes por sí misma. Requiere las tablas de 001 y 002 y es compatible con 003 y 004.
+
+La operación bloquea el cliente y sus préstamos y borra los registros en una sola transacción. Si el resumen cambia por otro pago, edición o refinanciación, exige actualizarlo y confirmar nuevamente. Los reintentos de una eliminación ya completada no repiten la operación. Los roles de consulta no pueden ejecutar las funciones de eliminación y el acceso directo DELETE continúa revocado. Las pruebas PostgreSQL cubren permisos, rollback, integridad, otros clientes y cuentas de acceso; las de navegador usan datos simulados. No se ha ejecutado esta migración en el proyecto Supabase real.
