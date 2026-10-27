@@ -59,8 +59,19 @@ async function mockSupabase(
       ];
     else if (url.pathname.startsWith("/rest/v1/rpc/")) {
       const name = url.pathname.split("/").at(-1)!;
-      calls.push({ name, body: request.postDataJSON() });
+      if (name !== "cash_summary") calls.push({ name, body: request.postDataJSON() });
       body = "33333333-3333-4333-8333-333333333333";
+      if (name === "cash_summary") body = tables.cash_summary ?? cashFixture(false);
+      if (name === "record_cash_movement") {
+        const fields = request.postDataJSON();
+        const current = (tables.cash_summary ?? cashFixture(false)) as ReturnType<typeof cashFixture>;
+        const field = fields.p_kind === "apertura" ? "opening_cents" : fields.p_kind === "aporte" ? "contributions_cents" : "withdrawals_cents";
+        current[field] = String(BigInt(current[field]) + BigInt(fields.p_amount));
+        current.configured = true;
+        current.balance_cents = String(BigInt(current.opening_cents) + BigInt(current.contributions_cents) + BigInt(current.received_cents) - BigInt(current.disbursed_cents) - BigInt(current.withdrawals_cents));
+        tables.cash_summary = { ...current };
+        tables.cash_movements = [{ id: String(fields.p_request), kind: fields.p_kind, amount_cents: fields.p_amount, note: fields.p_note, created_at: "2026-10-27T15:00:00Z" }, ...((tables.cash_movements ?? []) as unknown[])];
+      }
       if (name === "preview_client_deletion") body = tables.client_deletion_preview;
       if (name === "delete_client") {
         const id = request.postDataJSON().p_client;
@@ -1648,4 +1659,83 @@ test("eliminación exige revisar de nuevo si cambia la deuda y explica si falta 
   await expect(dialog).toContainText("202610190008_delete_client.sql");
   await expect(confirm).toBeDisabled();
   expect(calls.some((c) => c.name === "delete_client")).toBe(false);
+});
+
+
+function cashFixture(configured = true) {
+  return { configured, opening_cents: configured ? "500000" : "0", contributions_cents: "0", withdrawals_cents: "0", received_cents: "25000", disbursed_cents: "100000", interest_cents: "6000", month_interest_cents: "1000", balance_cents: configured ? "425000" as string | null : null, as_of: "2026-10-27" };
+}
+
+test("caja permite configurar dinero inicial, registrar aportes y retiros sin duplicar cobros", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 900 });
+  await page.emulateMedia({ colorScheme: "dark" });
+  const calls = await mockSupabase(page, "administrador", { ...await dashboardFixtures(), cash_summary: cashFixture(false) });
+  await login(page);
+  const cash = page.getByRole("region", { name: "Caja y ganancias", exact: true });
+  await expect(cash).toContainText("Sin configurar");
+  await expect(cash).toContainText("S/ 60.00");
+  await cash.getByRole("button", { name: "Ver caja", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("no el efectivo que tienes hoy");
+  await dialog.getByLabel("Dinero inicial (S/)", { exact: true }).fill("5000");
+  await dialog.getByLabel("Motivo del movimiento").fill("Capital de inicio");
+  await dialog.getByRole("button", { name: "Guardar dinero inicial", exact: true }).click();
+  await expect(dialog.getByText("Movimiento registrado. Se está actualizando el saldo.")).toBeVisible();
+  await expect(dialog.getByLabel("Tipo de movimiento")).toBeVisible();
+  await expect(dialog).toContainText("S/ 4,250.00");
+  await expect(dialog.getByRole("button", { name: "Guardar dinero inicial", exact: true })).toHaveCount(0);
+  await dialog.getByLabel("Importe (S/)", { exact: true }).fill("100");
+  await dialog.getByLabel("Motivo del movimiento").fill("Nuevo aporte");
+  await dialog.getByRole("button", { name: "Registrar movimiento", exact: true }).click();
+  await expect(dialog).toContainText("S/ 4,350.00");
+  await dialog.getByLabel("Tipo de movimiento").selectOption("retiro");
+  await dialog.getByLabel("Importe (S/)", { exact: true }).fill("50.25");
+  await dialog.getByLabel("Motivo del movimiento").fill("Retiro gerencia");
+  await dialog.getByRole("button", { name: "Registrar movimiento", exact: true }).click();
+  await expect(dialog).toContainText("S/ 4,299.75");
+  await expect(dialog.getByRole("table", { name: "Aportes y retiros de caja" })).toContainText("Retiro gerencia");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  expect(calls.filter(c => c.name === "record_cash_movement").map(c => ({ kind: c.body.p_kind, amount: c.body.p_amount }))).toEqual([{ kind: "apertura", amount: 500000 }, { kind: "aporte", amount: 10000 }, { kind: "retiro", amount: 5025 }]);
+});
+
+test("consulta muestra caja y ganancia histórica sin permisos de escritura ni filtros de clientes", async ({ page }) => {
+  const calls = await mockSupabase(page, "jefe", { ...await dashboardFixtures(), cash_summary: cashFixture() });
+  await login(page);
+  const cash = page.getByRole("region", { name: "Caja y ganancias", exact: true });
+  await expect(cash).toContainText("S/ 4,250.00");
+  await expect(cash).toContainText("S/ 60.00");
+  await page.getByRole("searchbox").fill("Ana");
+  await expect(cash).toContainText("S/ 4,250.00");
+  await cash.getByRole("button", { name: "Ver caja", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Interés cobrado este mes");
+  await expect(dialog.getByLabel("Tipo de movimiento")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: /Registrar movimiento|Guardar dinero inicial/ })).toHaveCount(0);
+  expect(calls.some(c => c.name === "record_cash_movement")).toBe(false);
+});
+
+test("caja negativa muestra advertencia y sigue operativa al volver a la pestaña", async ({ page }) => {
+  const cashData = { ...cashFixture(), balance_cents: "-20000", withdrawals_cents: "445000" };
+  await mockSupabase(page, "administrador", { ...await dashboardFixtures(), cash_summary: cashData });
+  await login(page);
+  const cash = page.getByRole("region", { name: "Caja y ganancias", exact: true });
+  await expect(cash).toContainText("−S/ 200.00");
+  await expect(cash).toContainText("La caja calculada es negativa");
+  await cash.getByRole("button", { name: "Ver caja", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Importe (S/)", { exact: true }).fill("200");
+  await returnToTab(page);
+  await expect(dialog.getByLabel("Importe (S/)", { exact: true })).toHaveValue("200");
+  await expect(dialog).toBeVisible();
+});
+
+test("sin migración de caja se explica el paso pendiente sin bloquear préstamos", async ({ page }) => {
+  await mockSupabase(page, "administrador", await dashboardFixtures());
+  await page.route("**/rest/v1/rpc/cash_summary", route => route.request().method() === "OPTIONS" ? route.fallback() : route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ code: "PGRST202", message: "Could not find the function" }) }));
+  await login(page);
+  const cash = page.getByRole("region", { name: "Caja y ganancias", exact: true });
+  await expect(cash).toContainText("202610270009_cash.sql");
+  await expect(cash.getByText("S/ 0.00", { exact: true })).toHaveCount(0);
+  await navigateModule(page, "Panel general");
+  await expect(page.getByRole("table", { name: "Panel general de préstamos" })).toBeVisible();
 });

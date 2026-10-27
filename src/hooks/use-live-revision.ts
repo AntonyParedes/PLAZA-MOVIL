@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { getSupabase } from "@/lib/supabase";
 
 // Re-read authorized data after a notification; never trust a socket payload as the balance.
-export function useLiveRevision(enabled = true) {
+export function useLiveRevision(enabled = true, includeCash = false) {
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     const supabase = getSupabase();
@@ -18,7 +18,7 @@ export function useLiveRevision(enabled = true) {
       }, 200);
     };
     const channel = supabase.channel(`pm-live-${crypto.randomUUID()}`);
-    for (const table of ["clients", "profiles", "loans", "loan_periods", "payments", "installments", "payment_installments"]) {
+    for (const table of ["clients", "profiles", "loans", "loan_periods", "payments", "installments", "payment_installments", ...(includeCash ? ["cash_movements"] : [])]) {
       channel.on("postgres_changes", { event: "*", schema: "public", table }, refresh);
     }
     channel.subscribe(status => {
@@ -39,6 +39,6 @@ export function useLiveRevision(enabled = true) {
       document.removeEventListener("visibilitychange", onVisibility);
       void supabase.removeChannel(channel);
     };
-  }, [enabled]);
+  }, [enabled, includeCash]);
   return revision;
 }

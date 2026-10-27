@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import CashOverview from "@/components/cash-overview";
 import { useLiveRevision } from "@/hooks/use-live-revision";
 import { getSupabase } from "@/lib/supabase";
 import {
@@ -904,6 +905,7 @@ export default function FinancialWorkspace({
       )}
       {tab === "resumen" && (
         <>
+          <CashOverview role={role} />
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Kpi
               label="Capital pendiente"
