@@ -9,6 +9,7 @@ export const cashSummarySchema = z.object({
  withdrawals_cents: amount,
  received_cents: amount,
  disbursed_cents: amount,
+ penalty_cents: amount.default("0"),
  interest_cents: amount,
  month_interest_cents: amount,
  balance_cents: z.string().regex(/^-?\d+$/).nullable(),

@@ -8,7 +8,7 @@ import {
   clientWhatsApp,
   type AccountData,
 } from "@/lib/client-account";
-import { dateLabel, limaDate, type Customer } from "@/lib/portal";
+import { paymentReceived, dateLabel, limaDate, type Customer } from "@/lib/portal";
 import { formatPEN } from "@/lib/finance";
 import { Badge, EmptyState, Notice, PaymentBadge } from "./ui/dashboard";
 import { Button } from "./ui/button";
@@ -383,9 +383,10 @@ export default function ClientDirectory({
                                     className="rounded-xl bg-slate-50 p-3 text-sm"
                                   >
                                     {dateLabel(p.paid_on)} ·{" "}
-                                    {formatPEN(p.amount_cents)} · Interés:{" "}
+                                    {formatPEN(paymentReceived(p))} · Interés:{" "}
                                     {formatPEN(p.interest_cents)} · Capital:{" "}
                                     {formatPEN(p.capital_cents)}
+                                    {(p.penalty_cents ?? 0) > 0 && <span className="block mt-1">Penalidad: {formatPEN(p.penalty_cents!)} · {p.penalty_reason}</span>}
                                   </div>
                                 ))}
                               {!account.payments.some(

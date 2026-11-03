@@ -96,6 +96,7 @@ test("Excel real conserva identificación, ocho cuotas, números, fechas y hojas
       "Cartera",
       "Cuotas",
       "Pagos",
+      "Penalidades",
       "Periodos",
       "Refinanciaciones",
       "Clientes",
@@ -205,4 +206,24 @@ test("texto de clientes no se ejecuta como fórmula y céntimos grandes se conse
   assert.equal(cell.formula, undefined);
   assert.equal(excelMoney(9007199254740991n), "90071992547409.91");
   assert.equal(excelMoney(123456), 1234.56);
+});
+
+test("Excel separa penalidad cobrada de capital e interés y la incluye una sola vez en el total", async () => {
+ const input=structuredClone(data);
+ input.today='2026-10-10';input.loans[0].status='liquidado';input.loans[0].capital_pending=0;
+ input.payments[0]={...input.payments[0],amount_cents:112000,capital_cents:100000,interest_cents:12000,penalty_cents:5000,penalty_reason:'Plazo vencido',paid_on:'2026-10-10'};
+ input.installments=input.installments.map(i=>({...i,paid_cents:i.scheduled_cents,pending_cents:0,status:'pagado'}));
+ const book=await buildCreditWorkbook(input);
+ const register=book.getWorksheet('Penalidades')!;
+ assert.equal(register.rowCount,2);assert.equal(register.getRow(2).getCell(column(register,'PENALIDAD COBRADA')).value,50);
+ const pagos=book.getWorksheet('Pagos')!;
+ for(const [name,expected] of [['TOTAL PAGADO',1170],['INTERÉS',120],['CAPITAL',1000],['PENALIDAD',50],['MOTIVO DE PENALIDAD','Plazo vencido']] as const) assert.equal(pagos.getRow(2).getCell(column(pagos,name)).value,expected,name);
+ const cartera=book.getWorksheet('Cartera')!;
+ assert.equal(cartera.getRow(2).getCell(column(cartera,'PENALIDAD COBRADA')).value,50);
+ assert.equal(cartera.getRow(2).getCell(column(cartera,'TOTAL PAGADO')).value,1170);
+ for(const name of ['Cobros por semana','Cobros por mes']) {
+  const sheet=book.getWorksheet(name)!;
+  assert.equal(sheet.getRow(2).getCell(column(sheet,'PENALIDAD COBRADA')).value,50);
+  assert.equal(sheet.getRow(2).getCell(column(sheet,'TOTAL COBRADO')).value,1170);
+ }
 });

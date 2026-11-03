@@ -130,7 +130,7 @@ export default function CashOverview({ role }: { role: "administrador" | "jefe" 
           <div><dt className="text-sm">Interés cobrado (ganancia)</dt><dd className="mt-1 break-words text-xl font-semibold tabular-nums">{formatPEN(BigInt(summary.interest_cents))}</dd></div>
         </dl>
         <dl className="grid grid-cols-2 gap-4 rounded-xl bg-slate-50 p-4 text-sm">
-          {([["Dinero inicial", summary.opening_cents], ["Aportes", summary.contributions_cents], ["Pagos recibidos", summary.received_cents], ["Préstamos entregados", summary.disbursed_cents], ["Retiros", summary.withdrawals_cents], ["Interés cobrado este mes", summary.month_interest_cents]] as const).map(([label, value]) => <div key={label}><dt className="text-slate-500">{label}</dt><dd className="mt-1 break-words font-semibold tabular-nums">{formatPEN(BigInt(value))}</dd></div>)}
+          {([["Dinero inicial", summary.opening_cents], ["Aportes", summary.contributions_cents], ["Pagos recibidos", summary.received_cents], ["Préstamos entregados", summary.disbursed_cents], ["Retiros", summary.withdrawals_cents], ["Penalidades cobradas", summary.penalty_cents], ["Interés cobrado este mes", summary.month_interest_cents]] as const).map(([label, value]) => <div key={label}><dt className="text-slate-500">{label}</dt><dd className="mt-1 break-words font-semibold tabular-nums">{formatPEN(BigInt(value))}</dd></div>)}
         </dl>
         <p className="text-sm text-slate-500">Los pagos y desembolsos se incluyen automáticamente. No los registres otra vez como aportes o retiros. Refinanciar no entrega dinero adicional ni suma el interés pendiente como ganancia.</p>
         {role === "administrador" && <form onSubmit={record} className="space-y-4 rounded-2xl border border-slate-200 p-4">

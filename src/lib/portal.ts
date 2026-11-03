@@ -1,6 +1,6 @@
 export type Loan = { id: string; client_id: string; original_capital: number; capital_pending: number; interest_pending: number; rate_basis_points: number; status: 'activo' | 'liquidado'; created_at: string };
 export type Period = { id: string; loan_id: string; number: number; start_date: string; end_date: string; months: number; opening_capital: number; interest_generated: number; interest_settled_on: string | null; is_current: boolean };
-export type Payment = { id: string; loan_id: string; period_id: string; amount_cents: number; interest_cents: number; capital_cents: number; paid_on: string; created_at: string };
+export type Payment = { id: string; loan_id: string; period_id: string; amount_cents: number; interest_cents: number; capital_cents: number; penalty_cents?: number; penalty_reason?: string | null; paid_on: string; created_at: string };
 export type Installment = { id: string; period_id: string; loan_id: string; number: number; due_date: string; scheduled_cents: number; paid_cents: number; pending_cents: number; is_current: boolean; status: string };
 export type Customer = { id: string; full_name: string; dni: string; phone: string; stand_code: string | null; member_type: 'socio' | 'trabajador' | null };
 export function limaDate(now = new Date()): string {
@@ -27,4 +27,9 @@ export function csvContent(rows: (string|number)[][]):string {
 export function downloadCSV(filename:string,rows:(string|number)[][]) {
  const url=URL.createObjectURL(new Blob([csvContent(rows)],{type:'text/csv;charset=utf-8'}));
  const link=document.createElement('a');link.href=url;link.download=filename;link.click();URL.revokeObjectURL(url);
+}
+
+/** Amount applied to debt stays separate from the optional penalty collected. */
+export function paymentReceived(payment: Pick<Payment, 'amount_cents' | 'penalty_cents'>): bigint {
+ return BigInt(payment.amount_cents) + BigInt(payment.penalty_cents ?? 0);
 }

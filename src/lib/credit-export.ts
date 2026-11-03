@@ -3,6 +3,7 @@ import { decimalSoles } from "./finance";
 import { collectionStatus, weekdayLabel } from "./collection-status";
 import {
   weekBounds,
+  paymentReceived,
   type Customer,
   type Loan,
   type Period,
@@ -198,6 +199,7 @@ export async function buildCreditWorkbook(input: CreditExportData) {
     moneyColumn("CAPITAL PENDIENTE"),
     moneyColumn("INTERÉS PENDIENTE"),
     { title: "ID PRÉSTAMO", width: 38, format: "@" },
+    moneyColumn("PENALIDAD COBRADA"),
   ];
   const cartera = book.addWorksheet("Cartera");
   setupSheet(
@@ -218,7 +220,7 @@ export async function buildCreditWorkbook(input: CreditExportData) {
         .reduce((sum, p) => sum + BigInt(p.interest_generated), 0n);
       const paid = payments
         .filter((p) => p.loan_id === l.id)
-        .reduce((sum, p) => sum + BigInt(p.amount_cents), 0n);
+        .reduce((sum, p) => sum + paymentReceived(p), 0n);
       const firstDue = schedule[0]?.due_date;
       return [
         c?.member_type?.toUpperCase() ?? "Por registrar",
@@ -256,6 +258,7 @@ export async function buildCreditWorkbook(input: CreditExportData) {
         excelMoney(l.capital_pending),
         excelMoney(l.interest_pending),
         l.id,
+        excelMoney(payments.filter(p => p.loan_id === l.id).reduce((sum,p) => sum+BigInt(p.penalty_cents ?? 0),0n)),
       ];
     }),
   );
@@ -347,6 +350,8 @@ export async function buildCreditWorkbook(input: CreditExportData) {
       moneyColumn("TOTAL PAGADO"),
       moneyColumn("INTERÉS"),
       moneyColumn("CAPITAL"),
+      moneyColumn("PENALIDAD"),
+      { title: "MOTIVO DE PENALIDAD", width: 36 },
       { title: "REGISTRO (LIMA)", width: 24 },
       { title: "ID PAGO", width: 38 },
       { title: "ID PRÉSTAMO", width: 38 },
@@ -355,9 +360,11 @@ export async function buildCreditWorkbook(input: CreditExportData) {
       ...identity(p.loan_id),
       periodMap.get(p.period_id)?.number ?? null,
       date(p.paid_on),
-      excelMoney(p.amount_cents),
+      excelMoney(paymentReceived(p)),
       excelMoney(p.interest_cents),
       excelMoney(p.capital_cents),
+      excelMoney(p.penalty_cents ?? 0),
+      p.penalty_reason ?? "",
       new Intl.DateTimeFormat("es-PE", {
         timeZone: "America/Lima",
         dateStyle: "short",
@@ -367,6 +374,12 @@ export async function buildCreditWorkbook(input: CreditExportData) {
       p.loan_id,
     ]),
   );
+  setupSheet(book.addWorksheet("Penalidades"), [
+    ...common, dateColumn("FECHA DE COBRO"), moneyColumn("PENALIDAD COBRADA"),
+    { title: "MOTIVO", width: 40 }, { title: "ID PAGO", width: 38 }, { title: "ID PRÉSTAMO", width: 38 },
+  ], payments.filter(p => (p.penalty_cents ?? 0) > 0).map(p => [
+    ...identity(p.loan_id), date(p.paid_on), excelMoney(p.penalty_cents!), p.penalty_reason ?? "", p.id, p.loan_id,
+  ]));
   const periodColumns: Column[] = [
     ...common,
     { title: "PERIODO" },
@@ -441,15 +454,16 @@ export async function buildCreditWorkbook(input: CreditExportData) {
   const aggregate = (kind: "semana" | "mes") => {
     const sums = new Map<
       string,
-      { total: bigint; interest: bigint; capital: bigint }
+      { total: bigint; interest: bigint; capital: bigint; penalty: bigint }
     >();
     payments.forEach((p) => {
       const key =
         kind === "semana" ? weekBounds(p.paid_on).start : p.paid_on.slice(0, 7);
-      const value = sums.get(key) ?? { total: 0n, interest: 0n, capital: 0n };
-      value.total += BigInt(p.amount_cents);
+      const value = sums.get(key) ?? { total: 0n, interest: 0n, capital: 0n, penalty: 0n };
+      value.total += paymentReceived(p);
       value.interest += BigInt(p.interest_cents);
       value.capital += BigInt(p.capital_cents);
+      value.penalty += BigInt(p.penalty_cents ?? 0);
       sums.set(key, value);
     });
     return [...sums].sort(([a], [b]) => a.localeCompare(b));
@@ -467,12 +481,14 @@ export async function buildCreditWorkbook(input: CreditExportData) {
         moneyColumn("TOTAL COBRADO"),
         moneyColumn("INTERÉS COBRADO"),
         moneyColumn("CAPITAL COBRADO"),
+        moneyColumn("PENALIDAD COBRADA"),
       ],
       aggregate(kind).map(([key, value]) => [
         key,
         excelMoney(value.total),
         excelMoney(value.interest),
         excelMoney(value.capital),
+        excelMoney(value.penalty),
       ]),
     );
   setupSheet(
@@ -482,6 +498,7 @@ export async function buildCreditWorkbook(input: CreditExportData) {
       { title: "DESCRIPCIÓN", width: 110 },
     ],
     [
+      ["Penalidades", "Ingreso opcional cobrado al liquidar, separado de capital e interés. Total pagado incluye penalidad una sola vez; Total a cobrar y cuotas muestran solo capital e interés."],
       ["Fecha de saldos", input.today + " · América/Lima"],
       [
         "Alcance",

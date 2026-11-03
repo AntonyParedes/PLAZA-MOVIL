@@ -2,6 +2,7 @@ import { collectionStatus } from "./collection-status";
 import { formatPEN } from "./finance";
 import {
   dateLabel,
+  paymentReceived,
   type Customer,
   type Loan,
   type Period,
@@ -53,7 +54,7 @@ export function clientAccount(
       0n,
     ),
     totalCollected: payments.reduce(
-      (sum, p) => sum + BigInt(p.amount_cents),
+      (sum, p) => sum + paymentReceived(p),
       0n,
     ),
   };

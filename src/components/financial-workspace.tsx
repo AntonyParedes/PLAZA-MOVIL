@@ -16,6 +16,7 @@ import {
 import {
   addDays,
   dateLabel,
+  paymentReceived,
   downloadCSV,
   limaDate,
   weekBounds,
@@ -98,6 +99,7 @@ export default function FinancialWorkspace({
   try { displayedRate = monthlyRateForCapital(cents(loanAmount)); } catch { /* The form explains validation on submit. */ }
   const [start, setStart] = useState(limaDate);
   const [paymentAmount, setPaymentAmount] = useState("");
+  const [penaltyDraft, setPenaltyDraft] = useState<{ key: string; amount: string; reason: string } | null>(null);
   const [paidOn, setPaidOn] = useState(limaDate);
   const [preview, setPreview] = useState<ReturnType<
     typeof scheduleLoan
@@ -209,6 +211,12 @@ export default function FinancialWorkspace({
     } catch (error) { refinanceError = error instanceof Error ? error.message : "Revisa fecha y plazo de refinanciación"; }
   }
 
+  const penaltyKey = `${selected}:${selectedPeriod?.id ?? ""}`;
+  const penaltyActive = Boolean(selectedStatus?.requiresSettlement && penaltyDraft?.key === penaltyKey);
+  const settlementBalance = selectedLoan ? BigInt(selectedLoan.capital_pending) + BigInt(selectedLoan.interest_pending) : 0n;
+  let penaltyPreview = 0n;
+  try { if (penaltyActive) penaltyPreview = BigInt(cents(penaltyDraft!.amount)); } catch { /* Validated on confirmation. */ }
+
   const selectedQuotas = data.installments
     .filter(
       (i) => i.loan_id === selected && i.is_current && i.pending_cents > 0,
@@ -239,7 +247,7 @@ export default function FinancialWorkspace({
       const result = await supabase!.rpc(name, { ...args, p_request: id });
       if (result.error) throw new Error(result.error.message);
       setSuccess(
-        name === "record_payment"
+        (name === "record_payment" || name === "settle_loan_with_penalty")
           ? "Pago registrado correctamente."
           : name === "refinance_loan"
             ? "Refinanciación registrada. El nuevo periodo ya está disponible."
@@ -248,10 +256,15 @@ export default function FinancialWorkspace({
       requests.current.delete(signature);
       setShowNew(false);
       setPaymentAmount("");
+      setPenaltyDraft(null);
       setPreview(null);
       setRevision((r) => r + 1);
     } catch (e) {
       const message = e instanceof Error ? e.message : "No se pudo completar la operación. Puedes reintentar con los mismos datos.";
+      if (name === "settle_loan_with_penalty" && /could not find.*function|schema cache/i.test(message)) {
+        setError("Aplica la migración 202611030010_settlement_penalty.sql en Supabase para habilitar la penalidad.");
+        return;
+      }
       setError(/cuotas vencidas pendientes|producto de préstamo no autorizado/i.test(message) || (name === "refinance_loan" && /could not find.*function|schema cache/i.test(message))
         ? "Actualización de Supabase pendiente: la base de datos conserva las reglas anteriores. Aplica la actualización 007 y vuelve a intentarlo."
         : message);
@@ -291,6 +304,17 @@ export default function FinancialWorkspace({
   async function pay(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     try {
+      if (penaltyActive) {
+        const penalty = cents(penaltyDraft!.amount);
+        if (penalty <= 0) throw Error("Ingresa una penalidad mayor que cero o desactiva Penalidad.");
+        if (penaltyDraft!.reason.trim().length < 3 || penaltyDraft!.reason.trim().length > 300) throw Error("Escribe un motivo de 3 a 300 caracteres para la penalidad.");
+        if (settlementBalance + BigInt(penalty) > BigInt(Number.MAX_SAFE_INTEGER)) throw Error("El total está fuera del rango permitido.");
+        await mutate("settle_loan_with_penalty", {
+          p_loan: selected, p_expected_balance: Number(settlementBalance), p_penalty: penalty,
+          p_reason: penaltyDraft!.reason.trim(), p_paid_on: paidOn,
+        }, `¿Liquidar el préstamo? Saldo: ${money(settlementBalance)}. Penalidad: ${money(penalty)}. Total a cobrar: ${money(settlementBalance + BigInt(penalty))}. La penalidad se registra por separado. El pago no se podrá anular.`);
+        return;
+      }
       await mutate(
         "record_payment",
         { p_loan: selected, p_amount: cents(paymentAmount), p_paid_on: paidOn },
@@ -301,15 +325,21 @@ export default function FinancialWorkspace({
     }
   }
   function exportReport(kind: string) {
+    if (kind === "penalidades") return downloadCSV("penalidades-pm-creditos.csv", [
+      ["Cliente", "Stand", "Fecha", "Penalidad PEN", "Motivo", "ID pago"],
+      ...payments.filter(p => (p.penalty_cents ?? 0) > 0).map(p => [customer(loanById(p.loan_id)!)?.full_name ?? "", customer(loanById(p.loan_id)!)?.stand_code ?? "", p.paid_on, decimalSoles(p.penalty_cents!), p.penalty_reason ?? "", p.id]),
+    ]);
     if (kind === "pagos")
       downloadCSV("pagos-pm-creditos.csv", [
-        ["Cliente", "Fecha", "Total PEN", "Interés PEN", "Capital PEN"],
+        ["Cliente", "Fecha", "Total PEN", "Interés PEN", "Capital PEN", "Penalidad PEN", "Motivo de penalidad"],
         ...payments.map((p) => [
           customer(loanById(p.loan_id)!)?.full_name ?? "",
           p.paid_on,
-          decimalSoles(p.amount_cents),
+          decimalSoles(paymentReceived(p)),
           decimalSoles(p.interest_cents),
           decimalSoles(p.capital_cents),
+          decimalSoles(p.penalty_cents ?? 0),
+          p.penalty_reason ?? "",
         ]),
       ]);
     else if (kind === "vencidos")
@@ -368,16 +398,17 @@ export default function FinancialWorkspace({
     lent: loans.reduce((n, l) => n + BigInt(l.original_capital), 0n),
     capital: loans.reduce((n, l) => n + BigInt(l.capital_pending), 0n),
     interest: payments.reduce((n, p) => n + BigInt(p.interest_cents), 0n),
-    paid: payments.reduce((n, p) => n + BigInt(p.amount_cents), 0n),
+    paid: payments.reduce((n, p) => n + paymentReceived(p), 0n),
   };
   const groups = (key: "semana" | "mes") => {
-    const map = new Map<string, { total: bigint; interest: bigint }>();
+    const map = new Map<string, { total: bigint; interest: bigint; penalty: bigint }>();
     payments.forEach((p) => {
       const date =
         key === "mes" ? p.paid_on.slice(0, 7) : weekBounds(p.paid_on).start;
-      const value = map.get(date) ?? { total: 0n, interest: 0n };
-      value.total += BigInt(p.amount_cents);
+      const value = map.get(date) ?? { total: 0n, interest: 0n, penalty: 0n };
+      value.total += paymentReceived(p);
       value.interest += BigInt(p.interest_cents);
+      value.penalty += BigInt(p.penalty_cents ?? 0);
       map.set(date, value);
     });
     return [...map.entries()].sort(([a], [b]) => b.localeCompare(a));
@@ -648,6 +679,7 @@ export default function FinancialWorkspace({
       if (kind === "general")
         selectedIds = generalEntries.map((e) => e.loan.id);
       if (kind === "pagos") selectedIds = payments.map((p) => p.loan_id);
+      if (kind === "penalidades") selectedIds = payments.filter(p => (p.penalty_cents ?? 0) > 0).map(p => p.loan_id);
       if (kind === "vencidos")
         selectedIds = installments
           .filter((i) => i.due_date < today)
@@ -917,7 +949,7 @@ export default function FinancialWorkspace({
             <Kpi
               label="Total cobrado"
               value={money(totals.paid)}
-              note="Capital e intereses recibidos"
+              note="Capital, intereses y penalidades recibidos"
               icon={Banknote}
               tone="green"
             />
@@ -926,7 +958,7 @@ export default function FinancialWorkspace({
               value={money(
                 payments
                   .filter((p) => p.paid_on === today)
-                  .reduce((n, p) => n + BigInt(p.amount_cents), 0n),
+                  .reduce((n, p) => n + paymentReceived(p), 0n),
               )}
               note="Pagos registrados hoy"
               icon={CalendarDays}
@@ -1085,6 +1117,10 @@ export default function FinancialWorkspace({
       {tab === "reportes" && (
         <>
           <Card>
+            <SectionHeading title="Registro de penalidades" description="Cobros adicionales realizados al liquidar, separados del capital y del interés." action={<div className="flex flex-wrap gap-2"><Button variant="outline" disabled={loading} onClick={() => exportReport("penalidades")}>Penalidades CSV</Button><Button disabled={loading || exporting} onClick={() => exportExcel("penalidades")}>Penalidades Excel</Button></div>} />
+            <DataTable caption="Registro de penalidades" headers={["Cliente", "Fecha", "Penalidad cobrada", "Motivo", "Préstamo"]} keys={payments.filter(p => (p.penalty_cents ?? 0) > 0).map(p => p.id)} rows={payments.filter(p => (p.penalty_cents ?? 0) > 0).map(p => [customerCell(loanById(p.loan_id)!), dateLabel(p.paid_on), money(p.penalty_cents!), p.penalty_reason ?? "", <Button key="open" variant="outline" onClick={() => setSelected(p.loan_id)}>Ver préstamo</Button>])} emptyTitle="Sin penalidades registradas" emptyDescription="Aquí aparecerán únicamente las penalidades cobradas al liquidar un préstamo." />
+          </Card>
+          <Card>
             <SectionHeading title="Panel de cobranza" description="Exporta el resumen de prestatarios, saldos, cuotas y estados." action={<div className="flex flex-wrap gap-2"><Button disabled={loading || exporting} onClick={() => exportExcel("general")}><Download size={16} /> Panel de cobranza Excel</Button><Button variant="outline" onClick={exportGeneral}><Download size={16} /> Exportar panel CSV</Button></div>} />
             {portfolioFilters()}
           </Card>
@@ -1151,11 +1187,12 @@ export default function FinancialWorkspace({
                     variant="outline"
                     onClick={() =>
                       downloadCSV(`cobros-${key}.csv`, [
-                        [key, "Cobrado PEN", "Intereses cobrados PEN"],
+                        [key, "Cobrado PEN", "Intereses cobrados PEN", "Penalidades cobradas PEN"],
                         ...groups(key).map(([date, value]) => [
                           date,
                           decimalSoles(value.total),
                           decimalSoles(value.interest),
+                          decimalSoles(value.penalty),
                         ]),
                       ])
                     }
@@ -1166,7 +1203,7 @@ export default function FinancialWorkspace({
               />
               <DataTable
                 caption={`Cobros por ${key}`}
-                headers={["Periodo", "Total cobrado", "Intereses cobrados"]}
+                headers={["Periodo", "Total cobrado", "Intereses cobrados", "Penalidades cobradas"]}
                 keys={groups(key).map(([date]) => date)}
                 rows={groups(key).map(([date, value]) => [
                   key === "semana"
@@ -1178,6 +1215,7 @@ export default function FinancialWorkspace({
                       }).format(new Date(`${date}-01T00:00:00Z`)),
                   money(value.total),
                   money(value.interest),
+                  money(value.penalty),
                 ])}
                 emptyTitle="Sin cobros para este periodo"
                 emptyDescription="Los pagos registrados aparecerán agrupados aquí."
@@ -1189,7 +1227,7 @@ export default function FinancialWorkspace({
       <Sheet
         open={Boolean(selectedLoan)}
         onOpenChange={(open) => {
-          if (!open) setSelected("");
+          if (!open) { setSelected(""); setPenaltyDraft(null); }
         }}
         title={
           selectedLoan
@@ -1297,9 +1335,10 @@ export default function FinancialWorkspace({
                             disabled={
                               busy || loading || selectedQuotas.length < count
                             }
-                            onClick={() =>
-                              setPaymentAmount(decimalSoles(quotaAmount(count)))
-                            }
+                            onClick={() => {
+                              setPenaltyDraft(null);
+                              setPaymentAmount(decimalSoles(quotaAmount(count)));
+                            }}
                           >
                             Pagar {count} {count === 1 ? "cuota" : "cuotas"}
                           </Button>
@@ -1307,17 +1346,19 @@ export default function FinancialWorkspace({
                         <Button
                           type="button"
                           variant="outline"
-                          onClick={() =>
-                            setPaymentAmount(
-                              decimalSoles(
-                                BigInt(selectedLoan.capital_pending) +
-                                  BigInt(selectedLoan.interest_pending),
-                              ),
-                            )
-                          }
+                          disabled={busy || loading}
+                          onClick={() => {
+                            setPenaltyDraft(null);
+                            setPaymentAmount(decimalSoles(settlementBalance));
+                          }}
                         >
                           Liquidar préstamo
                         </Button>
+                        {selectedStatus?.requiresSettlement && <Button type="button" variant={penaltyActive ? "default" : "outline"} aria-pressed={penaltyActive} disabled={busy || loading} onClick={() => {
+                          setPenaltyDraft(penaltyActive ? null : { key: penaltyKey, amount: "", reason: "" });
+                          setPaymentAmount(decimalSoles(settlementBalance));
+                          setPaidOn(today);
+                        }}>Penalidad</Button>}
                       </div>
                       <p className="mt-3 text-xs leading-5 text-slate-500">
                         Las cuotas se completan desde la más antigua. Liquidar
@@ -1329,7 +1370,8 @@ export default function FinancialWorkspace({
                       <label>
                         Monto (S/)
                         <input
-                          value={paymentAmount}
+                          value={penaltyActive ? decimalSoles(settlementBalance) : paymentAmount}
+                          readOnly={penaltyActive}
                           onChange={(e) => setPaymentAmount(e.target.value)}
                           required
                           inputMode="decimal"
@@ -1343,14 +1385,21 @@ export default function FinancialWorkspace({
                           value={paidOn}
                           onChange={(e) => setPaidOn(e.target.value)}
                           required
-                          min={selectedPeriod?.start_date}
+                          min={penaltyActive && selectedPeriod ? addDays(selectedPeriod.end_date, 1) : selectedPeriod?.start_date}
                           max={today}
                         />
                       </label>
                     </div>
+                    {penaltyActive && <fieldset className="space-y-4 rounded-xl border border-[var(--warning-border)] bg-[var(--warning-bg)] p-4">
+                      <legend className="px-2 font-semibold">Penalidad opcional por plazo vencido</legend>
+                      <label className="block">Penalidad (S/)<input inputMode="decimal" required disabled={busy} value={penaltyDraft!.amount} onChange={e => setPenaltyDraft({ ...penaltyDraft!, amount: e.target.value })} placeholder="0.00" /></label>
+                      <label className="block">Motivo de la penalidad<textarea required minLength={3} maxLength={300} disabled={busy} value={penaltyDraft!.reason} onChange={e => setPenaltyDraft({ ...penaltyDraft!, reason: e.target.value })} /></label>
+                      <dl className="space-y-2 text-sm"><div className="flex justify-between gap-3"><dt>Saldo del préstamo</dt><dd>{money(settlementBalance)}</dd></div><div className="flex justify-between gap-3"><dt>Penalidad aparte</dt><dd>{money(penaltyPreview)}</dd></div><div className="flex justify-between gap-3 border-t pt-2 font-semibold"><dt>Total a cobrar</dt><dd>{money(settlementBalance + penaltyPreview)}</dd></div></dl>
+                      <p className="text-xs">Se cobra junto con la liquidación. Se registra por separado del capital y del interés. Puedes desactivarla con el botón Penalidad.</p>
+                    </fieldset>}
                     <div className="flex flex-wrap gap-2">
-                      <Button type="submit" disabled={busy}>
-                        {busy ? "Registrando…" : "Confirmar pago"}
+                      <Button type="submit" disabled={busy || loading}>
+                        {busy ? "Registrando…" : penaltyActive ? "Confirmar liquidación con penalidad" : "Confirmar pago"}
                       </Button>
                     </div>
                     <p className="text-xs leading-5 text-slate-500">
@@ -1458,7 +1507,7 @@ export default function FinancialWorkspace({
               <SectionHeading title="Pagos registrados" />
               <DataTable
                 caption="Pagos de este préstamo"
-                headers={["Fecha", "Total", "Interés", "Capital"]}
+                headers={["Fecha", "Total cobrado", "Interés", "Capital", "Penalidad", "Motivo de penalidad"]}
                 keys={data.payments
                   .filter((p) => p.loan_id === selected)
                   .sort((a, b) => a.created_at.localeCompare(b.created_at))
@@ -1468,9 +1517,11 @@ export default function FinancialWorkspace({
                   .sort((a, b) => a.created_at.localeCompare(b.created_at))
                   .map((p) => [
                     dateLabel(p.paid_on),
-                    money(p.amount_cents),
+                    money(paymentReceived(p)),
                     money(p.interest_cents),
                     money(p.capital_cents),
+                    money(p.penalty_cents ?? 0),
+                    p.penalty_reason ?? "—",
                   ])}
                 emptyTitle="Aún no hay pagos"
                 emptyDescription="El historial se actualizará al registrar un pago."

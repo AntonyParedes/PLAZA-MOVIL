@@ -72,6 +72,13 @@ async function mockSupabase(
         tables.cash_summary = { ...current };
         tables.cash_movements = [{ id: String(fields.p_request), kind: fields.p_kind, amount_cents: fields.p_amount, note: fields.p_note, created_at: "2026-10-27T15:00:00Z" }, ...((tables.cash_movements ?? []) as unknown[])];
       }
+      if (name === "settle_loan_with_penalty") {
+        const fields = request.postDataJSON();
+        const loan = (tables.loans as {id:string;capital_pending:number;interest_pending:number;status:string}[]).find(l => l.id === fields.p_loan)!;
+        const period = (tables.loan_periods as {id:string;loan_id:string;is_current:boolean}[]).find(p => p.loan_id === loan.id && p.is_current)!;
+        tables.payments = [...((tables.payments ?? []) as unknown[]), {id:body,loan_id:loan.id,period_id:period.id,amount_cents:fields.p_expected_balance,interest_cents:loan.interest_pending,capital_cents:loan.capital_pending,penalty_cents:fields.p_penalty,penalty_reason:fields.p_reason,paid_on:fields.p_paid_on,created_at:new Date().toISOString()}];
+        loan.capital_pending=0;loan.interest_pending=0;loan.status="liquidado";
+      }
       if (name === "preview_client_deletion") body = tables.client_deletion_preview;
       if (name === "delete_client") {
         const id = request.postDataJSON().p_client;
@@ -1738,4 +1745,80 @@ test("sin migración de caja se explica el paso pendiente sin bloquear préstamo
   await expect(cash.getByText("S/ 0.00", { exact: true })).toHaveCount(0);
   await navigateModule(page, "Panel general");
   await expect(page.getByRole("table", { name: "Panel general de préstamos" })).toBeVisible();
+});
+
+
+async function overduePenaltyFixture() {
+ const tables=await dashboardFixtures();
+ const {limaDate,addDays}=await import("../src/lib/portal");
+ const today=limaDate();
+ tables.loan_periods[0].start_date=addDays(today,-40);
+ tables.loan_periods[0].end_date=addDays(today,-12);
+ return tables;
+}
+
+test("penalidad opcional suma aparte al liquidar y queda visible en historial",async({page})=>{
+ await page.setViewportSize({width:375,height:900});
+ await page.emulateMedia({colorScheme:"dark"});
+ const calls=await mockSupabase(page,"administrador",await overduePenaltyFixture());
+ await login(page);await navigateModule(page,"Panel general");
+ await page.getByRole("button",{name:"Ver detalle de Ana Socia",exact:true}).click();
+ const detail=page.getByRole("dialog");
+ await detail.getByRole("button",{name:"Penalidad",exact:true}).click();
+ await expect(detail.getByRole("button",{name:"Penalidad",exact:true})).toHaveAttribute("aria-pressed","true");
+ await detail.getByLabel("Penalidad (S/)",{exact:true}).fill("25.50");
+ await detail.getByLabel("Motivo de la penalidad").fill("Plazo terminado");
+ await expect(detail.getByLabel("Monto (S/)",{exact:true})).toHaveValue("870.00");
+ await expect(detail.getByRole("group",{name:"Penalidad opcional por plazo vencido"})).toContainText("S/ 895.50");
+ let confirmation="";
+ page.once("dialog",async dialog=>{confirmation=dialog.message();await dialog.accept();});
+ await detail.getByRole("button",{name:"Confirmar liquidación con penalidad",exact:true}).click();
+ await expect(detail.getByText("Pago registrado correctamente.",{exact:true})).toBeVisible();
+ expect(confirmation).toMatch(/S\/\s*25\.50/);expect(confirmation).toMatch(/S\/\s*895\.50/);
+ const request=calls.find(c=>c.name==="settle_loan_with_penalty")!;
+ expect(request.body.p_expected_balance).toBe(87000);expect(request.body.p_penalty).toBe(2550);expect(request.body.p_reason).toBe("Plazo terminado");
+ const history=detail.getByRole("table",{name:"Pagos de este préstamo",exact:true});
+ await expect(history).toContainText("S/ 895.50");await expect(history).toContainText("S/ 25.50");await expect(history).toContainText("Plazo terminado");
+ await expect(detail.getByRole("button",{name:"Penalidad",exact:true})).toHaveCount(0);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+ await page.keyboard.press("Escape");
+ await navigateModule(page,"Reportes");
+ const register=page.getByRole("table",{name:"Registro de penalidades",exact:true});
+ await expect(register).toContainText("S/ 25.50");await expect(register).toContainText("Plazo terminado");await expect(register).toContainText("Ana Socia");
+});
+
+test("penalidad puede desactivarse y no se cobra en una liquidación normal",async({page})=>{
+ const calls=await mockSupabase(page,"administrador",await overduePenaltyFixture());
+ await login(page);await navigateModule(page,"Panel general");await page.getByRole("button",{name:"Ver detalle de Ana Socia",exact:true}).click();
+ const detail=page.getByRole("dialog");
+ await detail.getByRole("button",{name:"Penalidad",exact:true}).click();
+ await detail.getByLabel("Penalidad (S/)",{exact:true}).fill("50");
+ await detail.getByRole("button",{name:"Liquidar préstamo",exact:true}).click();
+ await expect(detail.getByLabel("Penalidad (S/)",{exact:true})).toHaveCount(0);
+ page.once("dialog",dialog=>dialog.accept());
+ await detail.getByRole("button",{name:"Confirmar pago",exact:true}).click();
+ await expect(detail.getByText("Pago registrado correctamente.",{exact:true})).toBeVisible();
+ expect(calls.filter(c=>c.name==="record_payment")[0].body.p_amount).toBe(87000);
+ expect(calls.some(c=>c.name==="settle_loan_with_penalty")).toBe(false);
+});
+
+for(const role of ["administrador","jefe"] as const) test(`penalidad respeta plazo completo y permisos ${role}`,async({page})=>{
+ await mockSupabase(page,role,await overduePenaltyFixture());await login(page);await navigateModule(page,"Panel general");
+ await page.getByRole("button",{name:role==="administrador"?"Ver detalle de Luis Trabajador":"Ver detalle de Ana Socia",exact:true}).click();
+ await expect(page.getByRole("dialog").getByRole("button",{name:"Penalidad",exact:true})).toHaveCount(0);
+});
+
+test("penalidad inválida no envía cobro y migración pendiente permite reintentar",async({page})=>{
+ const calls=await mockSupabase(page,"administrador",await overduePenaltyFixture());
+ await page.route("**/rest/v1/rpc/settle_loan_with_penalty",route=>route.request().method()==="OPTIONS"?route.fallback():route.fulfill({status:404,contentType:"application/json",body:JSON.stringify({code:"PGRST202",message:"Could not find the function in the schema cache"})}));
+ await login(page);await navigateModule(page,"Panel general");await page.getByRole("button",{name:"Ver detalle de Ana Socia",exact:true}).click();
+ const detail=page.getByRole("dialog");await detail.getByRole("button",{name:"Penalidad",exact:true}).click();
+ await detail.getByLabel("Penalidad (S/)",{exact:true}).fill("0");await detail.getByLabel("Motivo de la penalidad").fill("Plazo vencido");
+ await detail.getByRole("button",{name:"Confirmar liquidación con penalidad",exact:true}).click();
+ await expect(detail).toContainText("Ingresa una penalidad mayor que cero");
+ expect(calls.some(c=>c.name==="settle_loan_with_penalty")).toBe(false);
+ await detail.getByLabel("Penalidad (S/)",{exact:true}).fill("30");page.once("dialog",dialog=>dialog.accept());
+ await detail.getByRole("button",{name:"Confirmar liquidación con penalidad",exact:true}).click();
+ await expect(detail).toContainText("202611030010_settlement_penalty.sql");
+ await expect(detail.getByLabel("Penalidad (S/)",{exact:true})).toHaveValue("30");
 });
