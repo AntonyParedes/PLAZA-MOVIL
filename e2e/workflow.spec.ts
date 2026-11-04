@@ -1109,9 +1109,7 @@ for (const width of [375, 1440])
       fullPage: true,
     });
     await page.emulateMedia({ colorScheme: "dark" });
-    expect(
-      await ana.evaluate((el) => getComputedStyle(el).backgroundColor),
-    ).toBe("rgb(53, 36, 63)");
+    await expect(ana).toHaveCSS("background-color", "rgb(53, 36, 63)");
     await page.screenshot({
       path: `test-results/due-today-${width}-dark.png`,
       fullPage: true,
@@ -1821,4 +1819,55 @@ test("penalidad inválida no envía cobro y migración pendiente permite reinten
  await detail.getByRole("button",{name:"Confirmar liquidación con penalidad",exact:true}).click();
  await expect(detail).toContainText("202611030010_settlement_penalty.sql");
  await expect(detail.getByLabel("Penalidad (S/)",{exact:true})).toHaveValue("30");
+});
+
+for (const width of [375, 1440]) for (const dark of [false, true]) {
+ test(`apple-design recorrido visual ${width}px ${dark ? 'noche' : 'día'}`, async ({page}) => {
+  await page.setViewportSize({width,height:1000});
+  await page.emulateMedia({colorScheme:dark?'dark':'light'});
+  await mockSupabase(page,'administrador',{...await overduePenaltyFixture(),cash_summary:cashFixture()});
+  const prefix=process.env.PM_VISUAL_BEFORE==='1'?'before':'apple';
+  await page.goto('/');
+  await page.screenshot({path:`test-results/${prefix}-login-${width}-${dark}.png`,fullPage:true});
+  await login(page);
+  for(const moduleName of ['Inicio','Panel general','Clientes','Préstamos','Reportes','Configuración']) {
+   await navigateModule(page,moduleName);
+   await expect(page.getByRole('heading',{name:moduleName,level:1,exact:true})).toBeVisible();
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),moduleName).toBe(false);
+   await page.screenshot({path:`test-results/${prefix}-${moduleName}-${width}-${dark}.png`,fullPage:true});
+  }
+  await navigateModule(page,'Panel general');
+  await expect(page.getByRole('table',{name:'Panel general de préstamos'}).getByRole('columnheader')).toHaveCount(7);
+  await page.getByRole('button',{name:'Ver detalle de Ana Socia',exact:true}).click();
+  const detail=page.getByRole('dialog');
+  await expect(detail.getByRole('button',{name:'Penalidad',exact:true})).toBeVisible();
+  await detail.getByRole('button',{name:'Penalidad',exact:true}).click();
+  await detail.getByLabel('Penalidad (S/)',{exact:true}).fill('25');
+  await expect(detail).toContainText('Total a cobrar');
+  await page.screenshot({path:`test-results/${prefix}-detail-${width}-${dark}.png`,fullPage:true});
+  await page.keyboard.press('Escape');
+  await expect(detail).toHaveCount(0);
+ });
+}
+
+test('apple-design conserva accesibilidad con movimiento reducido, contraste alto y texto grande',async({page})=>{
+ await page.setViewportSize({width:375,height:900});
+ await page.emulateMedia({colorScheme:'dark',reducedMotion:'reduce',contrast:'more'});
+ await mockSupabase(page,'jefe',{...await dashboardFixtures(),cash_summary:cashFixture()});
+ await login(page);
+ await expect(page.locator('.app-toolbar')).toHaveCSS('backdrop-filter','none');
+ await page.evaluate(()=>{document.documentElement.style.fontSize='125%';});
+ for(const moduleName of ['Panel general','Clientes','Reportes','Configuración']) {
+  await navigateModule(page,moduleName);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),moduleName).toBe(false);
+ }
+ const menu=page.getByRole('button',{name:'Abrir menú',exact:true});
+ await menu.focus();await page.keyboard.press('Enter');
+ await expect(page.getByRole('dialog',{name:'Navegación'})).toBeVisible();
+ await expect(page.locator('.mobile-navigation')).toHaveCSS('animation-name','none');
+ await page.keyboard.press('Escape');
+ await expect(menu).toBeFocused();
+ await navigateModule(page,'Clientes');
+ const search=page.getByRole('searchbox');
+ expect(await search.evaluate(el=>parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16);
 });

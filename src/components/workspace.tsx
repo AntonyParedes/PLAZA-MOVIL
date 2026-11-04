@@ -248,21 +248,21 @@ export default function Workspace() {
     );
   if (!userId || !role || !supabase)
     return (
-      <div className="min-h-screen lg:grid lg:grid-cols-2">
-        <aside className="app-navigation flex flex-col justify-between bg-[var(--navy)] p-7 text-white sm:p-12 lg:p-16">
+      <div className="login-shell min-h-screen lg:grid lg:grid-cols-2">
+        <aside className="login-story flex flex-col justify-between bg-[var(--navy)] p-7 text-white sm:p-12 lg:p-16">
           <Brand />
-          <div className="py-10 lg:py-20">
+          <div className="login-story-copy py-10 lg:py-20">
             <Badge tone="info">Plaza Móvil</Badge>
             <h1 className="mt-6 max-w-lg text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
               Tus créditos, pagos y clientes.
               <br />
               <span className="text-blue-300">Todo en un solo lugar.</span>
             </h1>
-            <p className="mt-5 max-w-md text-sm leading-7 text-slate-300">
+            <p className="login-description mt-5 max-w-md text-sm leading-7 text-slate-300">
               Una vista clara de tu cartera para gestionar préstamos y acompañar
               cada pago.
             </p>
-            <div className="mt-8 grid max-w-lg gap-3 sm:grid-cols-3">
+            <div className="login-benefits mt-8 grid max-w-lg gap-3 sm:grid-cols-3">
               {[
                 [Wallet, "Créditos"],
                 [CalendarDays, "Pagos y saldos"],
@@ -285,7 +285,7 @@ export default function Workspace() {
             PM Créditos · Soles peruanos · Lima
           </p>
         </aside>
-        <main className="flex items-center justify-center p-6 sm:p-12">
+        <main className="login-access flex items-center justify-center p-6 sm:p-12">
           <div className="w-full max-w-md space-y-6">
             <div className="flex justify-end">
               <ThemeToggle />
@@ -324,7 +324,7 @@ export default function Workspace() {
                     Ingresa a tu espacio de trabajo con tu cuenta autorizada.
                   </p>
                 </div>
-                <form onSubmit={login} className="surface space-y-5 p-6 sm:p-8">
+                <form onSubmit={login} className="login-form surface space-y-5 p-6 sm:p-8">
                   <label>
                     Correo electrónico
                     <input

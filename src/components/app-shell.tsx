@@ -40,14 +40,14 @@ const navigation = [
 ] as const;
 export function Brand({ compact = false }: { compact?: boolean }) {
   return (
-    <div className="flex items-center gap-3">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-[#102b18]">
+    <div className="brand flex items-center gap-3">
+      <span className="brand-mark flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-[#102b18]">
         <Landmark size={22} aria-hidden="true" />
       </span>
       {!compact && (
         <div>
-          <p className="text-lg font-semibold tracking-tight">PM Créditos</p>
-          <p className="mt-0.5 text-[11px] text-slate-400">
+          <p className="brand-name text-lg font-semibold tracking-tight">PM Créditos</p>
+          <p className="brand-subtitle mt-0.5 text-[11px]">
             Gestión financiera
           </p>
         </div>
@@ -99,10 +99,10 @@ export default function AppShell({
                   setMobileOpen(false);
                 }}
                 className={cn(
-                  "flex w-full min-h-11 items-center gap-3 rounded-xl px-3 py-3 text-left text-[13px] font-medium transition-colors",
+                  "nav-item flex w-full min-h-11 items-center gap-3 rounded-xl px-3 py-3 text-left text-[13px] font-medium",
                   (section === item.id || (item.id === "prestamos" && section === "refinanciaciones") || (item.id === "configuracion" && section === "importar"))
-                    ? "bg-blue-600/20 text-blue-200 ring-1 ring-blue-400/20"
-                    : "text-slate-300 hover:bg-white/5 hover:text-white",
+                    ? "nav-item-current"
+                    : "nav-item-idle",
                   compact && "justify-center px-2",
                 )}
               >
@@ -114,17 +114,17 @@ export default function AppShell({
         </nav>
         <div
           className={cn(
-            "mx-4 mb-5 mt-6 rounded-xl border border-white/10 p-3.5",
+            "navigation-access mx-4 mb-5 mt-6 rounded-xl p-3.5",
             compact && "mx-3 p-2",
           )}
         >
-          <ShieldCheck size={18} className="text-blue-300" aria-hidden="true" />
+          <ShieldCheck size={18} className="navigation-access-icon" aria-hidden="true" />
           {!compact && (
             <>
-              <p className="mt-2 text-xs font-medium text-slate-200">
+              <p className="mt-2 text-xs font-medium">
                 Acceso autorizado
               </p>
-              <p className="mt-1 text-[11px] text-slate-400">
+              <p className="navigation-muted mt-1 text-[11px]">
                 Soles · PEN / Lima
               </p>
             </>
@@ -140,14 +140,14 @@ export default function AppShell({
       </a>
       <aside
         className={cn(
-          "app-navigation fixed inset-y-0 left-0 z-30 hidden flex-col overflow-y-auto bg-[var(--navy)] text-white transition-[width] lg:flex",
+          "app-navigation fixed inset-y-0 left-0 z-30 hidden flex-col overflow-y-auto lg:flex",
           collapsed ? "w-20" : "w-64",
         )}
       >
         <div className="flex min-h-full flex-col">
           {menu(collapsed)}
           <button
-            className="mx-3 mb-4 flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/10 text-xs text-slate-300 hover:bg-white/5"
+            className="navigation-collapse mx-3 mb-4 flex min-h-11 items-center justify-center gap-2 rounded-xl text-xs"
             aria-label={collapsed ? "Expandir menú" : "Contraer menú"}
             onClick={() => setCollapsed(!collapsed)}
           >
@@ -163,11 +163,11 @@ export default function AppShell({
       </aside>
       <div
         className={cn(
-          "min-w-0 transition-[padding] lg:pl-64",
+          "min-w-0 lg:pl-64",
           collapsed && "lg:pl-20",
         )}
       >
-        <header className="sticky top-0 z-20 flex min-h-20 items-center justify-between gap-3 border-b border-slate-200/70 bg-white/95 px-4 backdrop-blur sm:px-6 lg:px-8">
+        <header className="app-toolbar sticky top-0 z-20 flex min-h-20 items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <Dialog.Root open={mobileOpen} onOpenChange={setMobileOpen}>
               <Dialog.Trigger asChild>
@@ -180,8 +180,8 @@ export default function AppShell({
                 </Button>
               </Dialog.Trigger>
               <Dialog.Portal>
-                <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-950/45 lg:hidden" />
-                <Dialog.Content className="app-navigation fixed inset-y-0 left-0 z-50 flex w-[min(296px,85vw)] flex-col overflow-y-auto bg-[var(--navy)] text-white lg:hidden">
+                <Dialog.Overlay className="modal-scrim fixed inset-0 z-40 lg:hidden" />
+                <Dialog.Content className="app-navigation mobile-navigation fixed inset-y-0 left-0 z-50 flex w-[min(296px,85vw)] flex-col overflow-y-auto lg:hidden">
                   <Dialog.Title className="sr-only">Navegación</Dialog.Title>
                   <Dialog.Description className="sr-only">
                     Selecciona un módulo de PM Créditos.
@@ -189,7 +189,7 @@ export default function AppShell({
                   <Dialog.Close asChild>
                     <button
                       aria-label="Cerrar menú"
-                      className="absolute right-3 top-3 rounded-lg p-3 text-slate-300"
+                      className="navigation-close absolute right-3 top-3 rounded-lg p-3"
                     >
                       <X size={18} />
                     </button>
@@ -221,7 +221,7 @@ export default function AppShell({
               <DropdownMenu.Trigger asChild>
                 <button
                   aria-label="Menú de usuario"
-                  className="flex min-h-11 items-center gap-2 rounded-xl p-1.5 hover:bg-slate-50"
+                  className="account-trigger flex min-h-11 items-center gap-2 rounded-xl p-1.5 hover:bg-slate-50"
                 >
                   <span className="flex h-9 w-9 items-center justify-center rounded-full border border-blue-100 bg-blue-50 text-xs font-bold text-blue-700">
                     {role === "administrador" ? "AD" : "JF"}
@@ -241,7 +241,7 @@ export default function AppShell({
                 <DropdownMenu.Content
                   align="end"
                   sideOffset={10}
-                  className="z-50 min-w-56 rounded-xl border border-slate-200 bg-white p-2 shadow-lg"
+                  className="account-popover z-50 min-w-56 rounded-xl border border-slate-200 bg-white p-2 shadow-lg"
                 >
                   <div className="px-3 py-2 text-xs text-slate-500">
                     Sesión autorizada <Badge tone="info">{role}</Badge>
@@ -267,7 +267,7 @@ export default function AppShell({
         <main
           id="contenido"
           tabIndex={-1}
-          className="mx-auto max-w-[1680px] space-y-6 p-4 sm:p-6 lg:p-8"
+          className="workspace-content mx-auto max-w-[1680px] space-y-6 p-4 sm:p-6 lg:p-8"
         >
           {["prestamos", "refinanciaciones"].includes(section) && (
             <nav aria-label="Operaciones de préstamos" className="section-switch">
@@ -283,7 +283,7 @@ export default function AppShell({
           )}
           {children}
         </main>
-        <footer className="px-6 pb-6 text-xs text-slate-500">
+        <footer className="workspace-footer px-6 pb-6 text-xs text-slate-500">
           PM Créditos · Montos en soles · Hora de Lima
         </footer>
       </div>

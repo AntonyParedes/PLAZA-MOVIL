@@ -715,7 +715,7 @@ export default function FinancialWorkspace({
       )}
       {error && <Notice error>{error}{error.startsWith("Actualización de Supabase pendiente") && <p className="mt-2"><a className="font-semibold underline" href="https://github.com/AntonyParedes/PLAZA-MOVIL/blob/mejora/experiencia-navegacion/supabase/migrations/202610150007_refinance_date_and_term.sql" target="_blank" rel="noreferrer">Abrir actualización SQL 007</a></p>}</Notice>}
       {success && <Notice>{success}</Notice>}
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="page-intro flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight">
             {
@@ -755,7 +755,7 @@ export default function FinancialWorkspace({
           </Button>
         </div>
       </div>
-      <Card className="!p-4">
+      <Card className="search-panel !p-0">
         <div className="max-w-xl">
           <ClientSearch value={search} onChange={setSearch} />
         </div>

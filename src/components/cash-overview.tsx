@@ -110,7 +110,7 @@ export default function CashOverview({ role }: { role: "administrador" | "jefe" 
   }
   const negative = summary?.balance_cents !== null && summary?.balance_cents !== undefined && BigInt(summary.balance_cents) < 0n;
   const refreshButton = <Button variant="outline" disabled={loading || busy} onClick={() => setRevision(n => n + 1)} aria-label="Actualizar caja"><RefreshCw size={16} /> Actualizar caja</Button>;
-  return <section aria-label="Caja y ganancias" className="space-y-4">
+  return <section aria-label="Caja y ganancias" className="cash-overview space-y-4">
     <SectionHeading title="Caja y ganancias" description="Resumen de toda la operación, independiente de la búsqueda de clientes." action={<div className="flex flex-wrap gap-2">{refreshButton}{summary && <Button variant="outline" onClick={() => { setOpen(true); setSuccess(""); }}>Ver caja</Button>}</div>} />
     {error && <Notice error>{error}{summary && " Se muestran los últimos valores cargados."}</Notice>}
     {!summary ? <Card><p role="status">{loading ? "Cargando caja y ganancias…" : "Caja no disponible. Revisa el aviso y vuelve a actualizar."}</p></Card> : <>

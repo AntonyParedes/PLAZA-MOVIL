@@ -131,7 +131,7 @@ export default function ClientDirectory({
           <article
             key={client.id}
             aria-label={client.full_name}
-            className="surface overflow-hidden"
+            className="client-card surface overflow-hidden"
           >
             <div className="flex flex-col items-stretch gap-3 p-4 sm:flex-row sm:items-center sm:p-5">
               <button
