@@ -4,7 +4,7 @@ Referencias aplicadas: [skill original de Emil Kowalski](https://github.com/emil
 
 ## Dirección visual
 
-Una herramienta financiera tranquila y legible. Se conserva verde #4EB852, morado #9763A8 y el gris de marca. Navegación con tonos claros durante el día y oscuros por la noche, selección verde, fondos de contenido neutros y estados de cobranza semánticos. Los importes, etiquetas y estados siguen siendo información prioritaria.
+Una herramienta financiera tranquila y legible. Se conserva verde #4EB852, morado #9763A8 y el gris de marca. El menú lateral conserva el morado oscuro original también en modo día, a pedido del usuario, con textos claros y selección verde. El resto del contenido adapta sus fondos neutros al modo claro u oscuro y mantiene estados de cobranza semánticos. Los importes, etiquetas y estados siguen siendo información prioritaria.
 
 Tipografía de sistema (San Francisco en dispositivos Apple, Segoe UI en Windows, fuente local como alternativa), cifras tabulares, títulos con espaciado ajustado y textos pequeños con aire suficiente. Fondos suaves, esquinas coherentes y sombras ligeras establecen profundidad; las barras superiores usan una sola capa translúcida de alcance limitado. Las tarjetas de caja tienen mayor jerarquía numérica que los indicadores secundarios.
 

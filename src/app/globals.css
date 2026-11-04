@@ -1,9 +1,15 @@
 :root {
   color-scheme: light;
-  --navigation-bg: #efedf2;
-  --navigation-text: #37333e;
-  --navigation-muted: #716a7b;
-  --navigation-hover: #e5e1e9;
+  --navigation-bg: #211827;
+  --navigation-text: #e7e1ef;
+  --navigation-muted: #b8afc5;
+  --navigation-hover: #2c2333;
+  --navigation-active-bg: #293c2e;
+  --navigation-active-text: #c0efc5;
+  --navigation-active-border: #c0efc514;
+  --navigation-panel-bg: #ffffff02;
+  --navigation-panel-border: #ffffff0d;
+  --navigation-border: #ffffff0d;
   --surface-shadow: 0 1px 2px #20192504, 0 6px 24px #20192503;
   --glass: color-mix(in srgb, var(--surface) 88%, transparent);
   --scrim: #14111766;
@@ -50,6 +56,12 @@
     --navigation-text: #e2dce9;
     --navigation-muted: #aca3b7;
     --navigation-hover: #2a2432;
+    --navigation-active-bg: var(--brand-soft);
+    --navigation-active-text: var(--brand-text);
+    --navigation-active-border: color-mix(in srgb, var(--brand-border) 75%, transparent);
+    --navigation-panel-bg: color-mix(in srgb, var(--surface) 55%, transparent);
+    --navigation-panel-border: color-mix(in srgb, var(--border) 65%, transparent);
+    --navigation-border: color-mix(in srgb, var(--border) 75%, transparent);
     --surface-shadow: 0 1px 0 #ffffff05, 0 8px 28px #00000014;
     --scrim: #05040899;
     --accent-soft: #35243f;
@@ -91,6 +103,12 @@
   --navigation-text: #e2dce9;
   --navigation-muted: #aca3b7;
   --navigation-hover: #2a2432;
+  --navigation-active-bg: var(--brand-soft);
+  --navigation-active-text: var(--brand-text);
+  --navigation-active-border: color-mix(in srgb, var(--brand-border) 75%, transparent);
+  --navigation-panel-bg: color-mix(in srgb, var(--surface) 55%, transparent);
+  --navigation-panel-border: color-mix(in srgb, var(--border) 65%, transparent);
+  --navigation-border: color-mix(in srgb, var(--border) 75%, transparent);
   --surface-shadow: 0 1px 0 #ffffff05, 0 8px 28px #00000014;
   --scrim: #05040899;
   color-scheme: dark;
@@ -431,7 +449,7 @@ button, a, summary { scroll-margin-block: 6rem; }
 .app-navigation {
   color: var(--navigation-text);
   background: var(--navigation-bg);
-  border-right: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-right: 1px solid var(--navigation-border);
 }
 .nav-item {
   position: relative;
@@ -440,19 +458,19 @@ button, a, summary { scroll-margin-block: 6rem; }
   transition: background-color 120ms ease-out, color 120ms ease-out, transform 100ms ease-out;
 }
 .nav-item-current {
-  background: var(--brand-soft);
-  color: var(--brand-text);
-  border-color: color-mix(in srgb, var(--brand-border) 75%, transparent);
+  background: var(--navigation-active-bg);
+  color: var(--navigation-active-text);
+  border-color: var(--navigation-active-border);
   font-weight: 650;
   box-shadow: 0 1px 2px #102b1804;
 }
 .nav-item-idle { color: var(--navigation-text); }
 .nav-item svg { stroke-width: 1.65; }
 .navigation-access {
-  background: color-mix(in srgb, var(--surface) 55%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+  background: var(--navigation-panel-bg);
+  border: 1px solid var(--navigation-panel-border);
 }
-.navigation-access-icon { color: var(--brand-text); }
+.navigation-access-icon { color: var(--navigation-active-text); }
 .navigation-muted { color: var(--navigation-muted); }
 .navigation-collapse { color: var(--navigation-muted); }
 .navigation-close { color: var(--navigation-text); }
@@ -594,7 +612,7 @@ button, a, summary { scroll-margin-block: 6rem; }
 @media (prefers-contrast: more) {
   .app-toolbar, .sheet-heading { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
   .surface, .app-navigation, .data-table tr, input, select, textarea, .pm-button { border-color: var(--neutral-600); }
-  .nav-item-current { outline: 2px solid var(--brand-text); outline-offset: -2px; }
+  .nav-item-current { outline: 2px solid var(--navigation-active-text); outline-offset: -2px; }
   .notice { border-color: currentColor; }
 }
 @media (prefers-reduced-motion: reduce) {
