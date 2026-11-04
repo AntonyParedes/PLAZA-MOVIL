@@ -182,11 +182,13 @@ export async function buildCreditWorkbook(input: CreditExportData) {
     { title: "N° CUOTAS", width: 12 },
     { title: "DÍA DE PAGO", width: 16 },
   ];
-  const cartera = book.addWorksheet("Cartera");
+  const activeLoans = loans.filter(l => l.status === "activo");
+  const settledLoans = loans.filter(l => l.status === "liquidado");
+  const cartera = book.addWorksheet("Préstamos activos");
   setupSheet(
     cartera,
     columns,
-    loans.map((l) => {
+    activeLoans.map((l) => {
       const c = clients.get(l.client_id);
       const status = collectionStatus(l, periods, installments, input.today);
       const original = periods.find(
@@ -228,7 +230,7 @@ export async function buildCreditWorkbook(input: CreditExportData) {
       ];
     }),
   );
-  loans.forEach((l, index) => {
+  activeLoans.forEach((l, index) => {
     const schedule = installments.filter(
       (i) => i.loan_id === l.id && i.is_current,
     );
@@ -255,6 +257,25 @@ export async function buildCreditWorkbook(input: CreditExportData) {
       bold: true,
     };
   });
+  setupSheet(book.addWorksheet("Préstamos liquidados"), [
+    {title:"CONDICIÓN",width:16}, {title:"N° PRÉSTAMO",width:12},
+    {title:"CÓDIGO STAND",width:14,format:"@"},dateColumn("FECHA DEL PRÉSTAMO"),
+    {title:"CELULAR",width:15,format:"@"},{title:"APELLIDOS Y NOMBRES",width:34},
+    {title:"DNI",width:14,format:"@"},moneyColumn("MONTO PRESTADO"),
+    moneyColumn("INTERÉS GENERADO"),moneyColumn("INTERÉS COBRADO"),moneyColumn("CAPITAL DEVUELTO"),
+    moneyColumn("PENALIDAD COBRADA"),moneyColumn("TOTAL RECIBIDO"),dateColumn("FECHA DE LIQUIDACIÓN"),
+    {title:"ESTADO",width:24},
+  ], settledLoans.map(l => {
+    const client=clients.get(l.client_id);
+    const receipts=payments.filter(p=>p.loan_id===l.id);
+    const total=(values:number[])=>values.reduce((sum,value)=>sum+BigInt(value),0n);
+    const generated=periods.filter(p=>p.loan_id===l.id).reduce((sum,p)=>sum+BigInt(p.interest_generated),0n);
+    const settledOn=receipts.map(p=>p.paid_on).sort().at(-1);
+    return [client?.member_type?.toUpperCase() ?? "Por registrar",numbering.get(l.id)!,client?.stand_code ?? "Por registrar",date(startDate(l)),
+      client?.phone ?? "",client?.full_name ?? "Cliente no disponible",client?.dni ?? "",excelMoney(l.original_capital),
+      excelMoney(generated),excelMoney(total(receipts.map(p=>p.interest_cents))),excelMoney(total(receipts.map(p=>p.capital_cents))),
+      excelMoney(total(receipts.map(p=>p.penalty_cents ?? 0))),excelMoney(receipts.reduce((sum,p)=>sum+paymentReceived(p),0n)),date(settledOn),"Liquidado / cancelado"];
+  }));
   const common: Column[] = [
     { title: "N° PRÉSTAMO", width: 12 },
     { title: "CLIENTE", width: 34 },
@@ -300,9 +321,9 @@ export async function buildCreditWorkbook(input: CreditExportData) {
   );
   setupSheet(book.addWorksheet("Penalidades"), [
     ...common, dateColumn("FECHA DE COBRO"), moneyColumn("PENALIDAD COBRADA"),
-    { title: "MOTIVO", width: 40 }, { title: "ID PAGO", width: 38 }, { title: "ID PRÉSTAMO", width: 38 },
+    { title: "MOTIVO", width: 40 },
   ], payments.filter(p => (p.penalty_cents ?? 0) > 0).map(p => [
-    ...identity(p.loan_id), date(p.paid_on), excelMoney(p.penalty_cents!), p.penalty_reason ?? "", p.id, p.loan_id,
+    ...identity(p.loan_id), date(p.paid_on), excelMoney(p.penalty_cents!), p.penalty_reason ?? "",
   ]));
   const periodColumns: Column[] = [
     ...common,
@@ -315,8 +336,6 @@ export async function buildCreditWorkbook(input: CreditExportData) {
     moneyColumn("TOTAL PROGRAMADO"),
     dateColumn("INTERÉS PAGADO EL"),
     { title: "VIGENTE" },
-    { title: "ID PERIODO", width: 38 },
-    { title: "ID PRÉSTAMO", width: 38 },
   ];
   const periodRow = (p: Period): CellValue[] => [
     ...identity(p.loan_id),
@@ -329,8 +348,6 @@ export async function buildCreditWorkbook(input: CreditExportData) {
     excelMoney(BigInt(p.opening_capital) + BigInt(p.interest_generated)),
     date(p.interest_settled_on),
     p.is_current ? "Sí" : "No",
-    p.id,
-    p.loan_id,
   ];
   setupSheet(
     book.addWorksheet("Refinanciaciones"),
@@ -379,22 +396,23 @@ export async function buildCreditWorkbook(input: CreditExportData) {
   const capitalPending = sum(input.loans.map(l => l.capital_pending));
   const interestPending = sum(input.loans.map(l => l.interest_pending));
   const financialRows: CellValue[][] = [
-    ["Fecha de consulta", input.today, "Importes en soles. Resumen global, sin aplicar los filtros de Cartera."],
-    ["Capital pendiente en préstamos", excelMoney(capitalPending), "Dinero prestado que falta recuperar; no suma capital trasladado al refinanciar."],
-    ["Interés pendiente de cobro", excelMoney(interestPending), "Interés generado que aún no se ha cobrado; no es ganancia recibida."],
-    ["Saldo total por cobrar", excelMoney(capitalPending + interestPending), "Capital pendiente + interés pendiente."],
-    ["Capital desembolsado acumulado", excelMoney(sum(input.loans.map(l => l.original_capital))), "Capital entregado en préstamos originales; refinanciar no es otro desembolso."],
-    ["Interés cobrado (ganancia)", cash ? excelMoney(BigInt(cash.interest_cents)) : excelMoney(sum(input.payments.map(p => p.interest_cents))), "Todo el interés efectivamente recibido, sin incluir capital ni penalidades."],
-    ["Penalidades cobradas", cash ? excelMoney(BigInt(cash.penalty_cents)) : excelMoney(sum(input.payments.map(p => p.penalty_cents ?? 0))), "Ingreso separado del interés."],
-    ["Dinero inicial de caja", cash ? excelMoney(BigInt(cash.opening_cents)) : null, cash ? (cash.configured ? "Monto inicial registrado." : "Caja sin configurar: falta registrar el dinero inicial.") : "Información de caja no disponible."],
-    ["Aportes a caja", cash ? excelMoney(BigInt(cash.contributions_cents)) : null, "Entradas manuales adicionales."],
-    ["Pagos recibidos acumulados", cash ? excelMoney(BigInt(cash.received_cents)) : null, "Capital + interés + penalidades cobradas, contadas una sola vez."],
-    ["Préstamos entregados (salida de caja)", cash ? excelMoney(BigInt(cash.disbursed_cents)) : null, "Desembolsos originales registrados en caja."],
-    ["Retiros de caja", cash ? excelMoney(BigInt(cash.withdrawals_cents)) : null, "Salidas manuales registradas."],
-    ["DINERO DISPONIBLE EN CAJA", cash?.balance_cents != null ? excelMoney(BigInt(cash.balance_cents)) : null, cash?.configured ? "Inicial + aportes + pagos recibidos − préstamos entregados − retiros. El interés cobrado ya forma parte de los pagos; no se vuelve a sumar." : "Sin calcular: registra primero el dinero inicial de caja."],
-    ["Fecha del resumen de caja", cash?.as_of ?? null, "Fecha de la consulta de caja en América/Lima."],
+    ["DINERO DISPONIBLE EN CAJA",cash?.balance_cents != null ? excelMoney(BigInt(cash.balance_cents)) : null,cash?.configured ? "Dinero disponible para operar hoy. Ya incluye los cobros y descuenta los préstamos entregados y retiros." : "Sin calcular: falta registrar el dinero inicial de caja."],
+    ["Capital pendiente en préstamos",excelMoney(capitalPending),"Dinero prestado que todavía falta recuperar. No incluye intereses."],
+    ["Interés cobrado (ganancia)",cash ? excelMoney(BigInt(cash.interest_cents)) : excelMoney(sum(input.payments.map(p=>p.interest_cents))),"Todo el interés que ya se recibió. El capital devuelto no es ganancia."],
+    ["Fecha de consulta",input.today,"Todo el historial. Estos importes son globales y no cambian por los filtros de préstamos."],
+    ["Interés pendiente de cobro",excelMoney(interestPending),"Interés que aún falta cobrar; no se incluye como ganancia."],
+    ["Saldo total por cobrar",excelMoney(capitalPending+interestPending),"Capital pendiente + interés pendiente."],
+    ["Penalidades cobradas",cash ? excelMoney(BigInt(cash.penalty_cents)) : excelMoney(sum(input.payments.map(p=>p.penalty_cents??0))),"Ingreso adicional, separado de la ganancia por intereses."],
+    ["Dinero inicial de caja",cash ? excelMoney(BigInt(cash.opening_cents)) : null,"Punto de partida de la caja."],
+    ["Aportes a caja",cash ? excelMoney(BigInt(cash.contributions_cents)) : null,"Dinero adicional que entró."],
+    ["Pagos recibidos acumulados",cash ? excelMoney(BigInt(cash.received_cents)) : null,"Entradas por capital devuelto, interés y penalidades. No sumar otra vez la ganancia a la caja."],
+    ["Capital desembolsado acumulado",cash ? excelMoney(BigInt(cash.disbursed_cents)) : excelMoney(sum(input.loans.map(l=>l.original_capital))),"Dinero que salió para entregar préstamos. Refinanciar no cuenta como otro desembolso."],
+    ["Retiros de caja",cash ? excelMoney(BigInt(cash.withdrawals_cents)) : null,"Dinero retirado de caja."],
+    ["Cálculo de caja","Inicial + aportes + pagos − préstamos − retiros","El interés cobrado ya está dentro de los pagos recibidos."],
+    ["Fecha del resumen de caja",cash?.as_of??null,"Fecha de Lima. El detalle de cada préstamo se encuentra en las hojas de activos y liquidados."],
   ];
   setupSheet(summary, [{title:"CONCEPTO",width:38}, moneyColumn("IMPORTE / VALOR"), {title:"DETALLE",width:70}], financialRows);
+  summary.getRow(financialRows.findIndex(row=>row[0]==="Cálculo de caja")+2).getCell(2).alignment={wrapText:true,vertical:"middle"};
   // Mixed sections share one worksheet; a single autofilter would hide unrelated totals.
   summary.autoFilter = undefined;
   const appendSection = (title: string, columns: Column[], rows: CellValue[][]) => {
@@ -410,99 +428,24 @@ export async function buildCreditWorkbook(input: CreditExportData) {
       columns.forEach((column,index) => { if(column.format) row.getCell(index+1).numFmt = column.format; });
     });
   };
-  appendSection("DETALLE GLOBAL DE PRÉSTAMOS", [
-    ...common, dateColumn("FECHA DEL PRÉSTAMO"), {title:"ESTADO"},
-    moneyColumn("CAPITAL PRESTADO"), moneyColumn("INTERÉS GENERADO"), moneyColumn("CAPITAL COBRADO"),
-    moneyColumn("INTERÉS COBRADO"), moneyColumn("PENALIDAD COBRADA"), moneyColumn("TOTAL PAGADO"),
-    moneyColumn("CAPITAL PENDIENTE"), moneyColumn("INTERÉS PENDIENTE"), moneyColumn("SALDO"),
-    {title:"REFINANCIADO"}, {title:"ID PRÉSTAMO"},
-    dateColumn("FECHA PRÓXIMA CUOTA"),{title:"DÍAS DE ATRASO"},{title:"PERIODO VIGENTE"},{title:"TASA MENSUAL (%)",format:"0.00%"},
-  ], allLoans.map(l => {
-    const c = clients.get(l.client_id);
-    const receipts = input.payments.filter(p => p.loan_id === l.id);
-    const history = input.periods.filter(p => p.loan_id === l.id);
-    const status = collectionStatus(l, input.periods, input.installments, input.today);
-    return [numbering.get(l.id)!,c?.full_name ?? "Cliente no disponible",c?.stand_code ?? "Por registrar",date(startDate(l)),
-      status.state === "Atrasado" ? `Se atrasó ${status.daysLate} días` : status.state,
-      excelMoney(l.original_capital),excelMoney(sum(history.map(p => p.interest_generated))),
-      excelMoney(sum(receipts.map(p => p.capital_cents))),excelMoney(sum(receipts.map(p => p.interest_cents))),
-      excelMoney(sum(receipts.map(p => p.penalty_cents ?? 0))),excelMoney(receipts.reduce((total,p) => total + paymentReceived(p),0n)),
-      excelMoney(l.capital_pending),excelMoney(l.interest_pending),excelMoney(BigInt(l.capital_pending)+BigInt(l.interest_pending)),
-      status.refinanced ? "Sí" : "No",l.id,date(status.nextDate),status.daysLate,history.find(p=>p.is_current)?.number ?? null,l.rate_basis_points / 10000];
-  }));
-  appendSection("MOVIMIENTOS MANUALES DE CAJA", [dateColumn("FECHA (LIMA)"),{title:"TIPO"},moneyColumn("ENTRADA"),moneyColumn("SALIDA"),{title:"MOTIVO"},{title:"ID MOVIMIENTO"}],
+  appendSection("MOVIMIENTOS MANUALES DE CAJA", [dateColumn("FECHA (LIMA)"),{title:"TIPO"},moneyColumn("ENTRADA"),moneyColumn("SALIDA"),{title:"MOTIVO"}],
     (input.cashMovements ?? []).map(m => [
       date(new Intl.DateTimeFormat("en-CA",{timeZone:"America/Lima",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(m.created_at))),
       cashKindLabel[m.kind],m.kind !== "retiro" ? excelMoney(BigInt(m.amount_cents)) : null,
-      m.kind === "retiro" ? excelMoney(BigInt(m.amount_cents)) : null,m.note,m.id,
+      m.kind === "retiro" ? excelMoney(BigInt(m.amount_cents)) : null,m.note,
     ]));
   summary.getColumn(2).width = 34;
   summary.getColumn(3).width = 18;
   for (let index=1; index<=financialRows.length+1; index++) {
-    summary.mergeCells(index,3,index,8);
+    summary.mergeCells(index,3,index,6);
     summary.getRow(index).getCell(3).alignment = {wrapText:true,vertical:"middle"};
     summary.getRow(index).height = 36;
   }
   const balanceRow = summary.getRow(financialRows.findIndex(row=>row[0] === "DINERO DISPONIBLE EN CAJA") + 2);
   balanceRow.font = {bold:true};
   balanceRow.getCell(2).fill = {type:"pattern",pattern:"solid",fgColor:{argb:"FFD9EEDD"}};
-  for(let index=4;index<=20;index++) summary.getColumn(index).width = index === 16 ? 38 : 20;
-  setupSheet(
-    book.addWorksheet("Guía"),
-    [
-      { title: "CAMPO", width: 28 },
-      { title: "DESCRIPCIÓN", width: 110 },
-    ],
-    [
-      ["Penalidades", "Ingreso opcional cobrado al liquidar, separado de capital e interés. Total pagado incluye penalidad una sola vez; Total a cobrar y cuotas muestran solo capital e interés."],
-      ["Fecha de saldos", input.today + " · América/Lima"],
-      [
-        "Alcance",
-        input.description ??
-          "Préstamos seleccionados y sus historiales completos",
-      ],
-      [
-        "N° préstamo",
-        "Número de referencia del reporte, ordenado por fecha de desembolso e ID. El ID persistente se encuentra en Resumen financiero.",
-      ],
-      [
-        "Interés inicial (%)",
-        "Tasa mensual × meses del primer periodo. El detalle de los periodos refinanciados está en Refinanciaciones.",
-      ],
-      [
-        "Total a cobrar",
-        "Capital original + intereses generados en todos los periodos, incluyendo refinanciaciones. No suma dos veces el capital trasladado.",
-      ],
-      [
-        "Cuota 1, 2, …",
-        "Importe pagado asignado a cada cuota del periodo vigente. Se conserva el cronograma en columnas, sin una hoja adicional de cuotas.",
-      ],
-      [
-        "Colores de cuotas",
-        "Verde: pagada. Rojo: vencida con saldo. Ámbar: pendiente o parcial. Gris/sin valor: no existe en el periodo vigente.",
-      ],
-      [
-        "Historial completo",
-        "Los filtros seleccionan préstamos; se incluyen sus pagos y refinanciaciones. Resumen financiero siempre muestra toda la cartera y caja, sin filtros.",
-      ],
-      [
-        "Saldos históricos",
-        "Los saldos de periodos anteriores están trasladados al periodo vigente. No sumarlos otra vez a la deuda actual.",
-      ],
-      [
-        "Saldo",
-        "Capital pendiente + interés pendiente. No agrega penalidades.",
-      ],
-      [
-        "Precisión",
-        "Importes con más de 15 dígitos en céntimos se escriben como texto decimal exacto para evitar redondeos de Excel.",
-      ],
-      [
-        "Refinanciación",
-        "Conserva fechas y condiciones de los periodos refinanciados; el cronograma vigente aparece en Cartera.",
-      ],
-    ],
-  );
+  for(let index=4;index<=6;index++) summary.getColumn(index).width = index === 5 ? 40 : 20;
+  for(let row=2;row<=4;row++){summary.getRow(row).font={bold:true,size:12};summary.getRow(row).height=48;}
   return book;
 }
 export async function downloadCreditWorkbook(

@@ -629,7 +629,11 @@ fieldset:disabled { opacity: 0.65; }
 input:disabled, select:disabled, textarea:disabled { cursor: not-allowed; }
 .workflow-person { overflow-wrap: anywhere; }
 
-.brand-logo { display: grid; place-items: center; width: 11rem; height: 5.5rem; }
-.brand-logo:not(.brand-logo-compact) img { filter: brightness(0) invert(1); }
+.brand-logo { display: grid; place-items: center; width: 8rem; height: 4rem; }
+.brand-logo img { filter: brightness(0) invert(1); }
 .brand-logo img { display: block; width: 100%; height: auto; max-height: 100%; object-fit: contain; }
 .brand-logo-compact { width: 2.75rem; height: 2.75rem; }
+
+:root { --chart-green: #318b3b; --chart-purple: #9763a8; --chart-gray: #73767c; }
+[data-theme="dark"] { --chart-green: #78cc7e; --chart-purple: #c79cd7; --chart-gray: #a9abae; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --chart-green: #78cc7e; --chart-purple: #c79cd7; --chart-gray: #a9abae; } }

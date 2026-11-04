@@ -992,14 +992,15 @@ test("Excel completo se descarga, abre como XLSX y conserva datos, cuotas y pago
   const { default: ExcelJS } = await import("exceljs");
   const book = new ExcelJS.Workbook();
   await book.xlsx.readFile((await download.path())!);
-  expect(book.getWorksheet("Cartera")!.rowCount).toBe(5);
-  expect(book.getWorksheet("Cartera")!.getCell("F2").value).toBe("Ana Socia");
+  expect(book.getWorksheet("Préstamos activos")!.rowCount).toBe(4);
+  expect(book.getWorksheet("Préstamos activos")!.getCell("F2").value).toBe("Ana Socia");
   expect(book.getWorksheet("Pagos")!.rowCount).toBe(2);
-  expect(book.worksheets.map(sheet=>sheet.name)).toEqual(["Cartera","Pagos","Penalidades","Refinanciaciones","Cobros por mes","Resumen financiero","Guía"]);
+  expect(book.worksheets.map(sheet=>sheet.name)).toEqual(["Préstamos activos",
+      "Préstamos liquidados","Pagos","Penalidades","Refinanciaciones","Cobros por mes","Resumen financiero"]);
   const summary=book.getWorksheet("Resumen financiero")!;
   const summaryValue=(label:string)=>summary.getRows(2,summary.rowCount-1)!.find(row=>row.getCell(1).value===label)?.getCell(2).value;
   expect(summaryValue("DINERO DISPONIBLE EN CAJA")).toBeNull();
-  const firstHeaders=book.getWorksheet("Cartera")!.getRow(1).values as string[];
+  const firstHeaders=book.getWorksheet("Préstamos activos")!.getRow(1).values as string[];
   expect(firstHeaders).not.toContain("CAPITAL PENDIENTE");
   expect(firstHeaders).not.toContain("PENALIDAD COBRADA");
   await page
@@ -1012,10 +1013,10 @@ test("Excel completo se descarga, abre como XLSX y conserva datos, cuotas y pago
   const filtered = await filteredPromise;
   const other = new ExcelJS.Workbook();
   await other.xlsx.readFile((await filtered.path())!);
-  expect(other.getWorksheet("Cartera")!.rowCount).toBe(2);
+  expect(other.getWorksheet("Préstamos activos")!.rowCount).toBe(2);
   const metric=(sheet:import("exceljs").Worksheet,label:string)=>sheet.getRows(2,sheet.rowCount-1)!.find(row=>row.getCell(1).value===label)?.getCell(2).value;
   expect(metric(other.getWorksheet("Resumen financiero")!,"Saldo total por cobrar")).toBe(summaryValue("Saldo total por cobrar"));
-  expect(other.getWorksheet("Cartera")!.getCell("F2").value).toBe(
+  expect(other.getWorksheet("Préstamos activos")!.getCell("F2").value).toBe(
     "Luis Trabajador",
   );
 });
@@ -1068,7 +1069,7 @@ test("periodo terminado prioriza liquidación urgente en panel, cliente, WhatsAp
   const ExcelJS = await import("exceljs");
   const book = new ExcelJS.default.Workbook();
   await book.xlsx.readFile((await download.path())!);
-  const cartera = book.getWorksheet("Cartera")!;
+  const cartera = book.getWorksheet("Préstamos activos")!;
   const stateColumn = (cartera.getRow(1).values as string[]).findIndex(
     (v) => v === "ESTADO",
   );
@@ -1988,7 +1989,7 @@ test('marca Rapi Créditos aparece en pestaña, acceso y menú con logo legible'
  await page.getByRole('button',{name:'Contraer menú',exact:true}).click();
  await expect(page.getByRole('img',{name:'Plaza Móvil',exact:true}).filter({visible:true})).toHaveAttribute('src',/plaza-movil-symbol/);
  const iconHref=await page.locator('link[rel="icon"]').first().getAttribute('href');
- expect(iconHref).toContain('/icon.png');
+ expect(iconHref).toContain('/icon.svg');
  const icon=await page.request.get(iconHref!);expect(icon.ok()).toBe(true);
 
 });
@@ -2005,7 +2006,7 @@ test("Excel consulta caja global con perfil de lectura y conserva movimientos", 
  const summary=book.getWorksheet("Resumen financiero")!;
  const rows=summary.getRows(1,summary.rowCount)!;
  expect(rows.find(row=>row.getCell(1).value==="DINERO DISPONIBLE EN CAJA")!.getCell(2).value).toBe(4250);
- expect(rows.find(row=>row.getCell(6).value==="cash-opening")!.getCell(3).value).toBe(5000);
+ expect(rows.find(row=>row.getCell(5).value==="Inicio de caja")!.getCell(3).value).toBe(5000);
  expect(calls).toHaveLength(0);
 });
 test("Excel avisa si falla la consulta de caja y evita una descarga incompleta", async ({page}) => {
@@ -2016,4 +2017,39 @@ test("Excel avisa si falla la consulta de caja y evita una descarga incompleta",
  await page.getByRole("button",{name:"Panel de cobranza Excel",exact:true}).click();
  await expect(page.getByText("No se pudieron consultar los movimientos de caja. Vuelve a exportar.",{exact:true})).toBeVisible();
  expect(downloads).toBe(0);
+});
+
+test('Inicio muestra gráficos globales históricos, detalle mensual y conserva el capital al buscar un cliente',async({page})=>{
+ const fixtures=await dashboardFixtures();
+ await mockSupabase(page,'jefe',{...fixtures,cash_summary:cashFixture()});
+ await login(page);
+ const charts=page.getByRole('region',{name:'Gráficos financieros de todo el historial'});
+ await expect(charts).toContainText('Tu dinero, de un vistazo');
+ await expect(charts).toContainText('Cómo ha crecido tu ganancia');
+ await charts.getByText('Ver detalle mensual',{exact:true}).click();
+ const table=charts.getByRole('table',{name:'Detalle mensual histórico'});
+ await expect(table).toBeVisible();await expect(table).toContainText('Capital devuelto');
+ const before=await charts.innerText();await page.getByRole('searchbox').fill('Ana');
+ expect(await charts.innerText()).toBe(before);
+ const summary=page.getByRole('region',{name:'Caja y ganancias',exact:true});
+ await expect(summary).toContainText('Capital por recuperar');
+});
+
+test('icono del navegador conserva transparencia y cambia negro o blanco según apariencia',async({page})=>{
+ await mockSupabase(page,'jefe');await page.goto('/');
+ const href=await page.locator('link[rel="icon"]').first().getAttribute('href');
+ expect(href).toContain('/icon.svg');
+ for(const scheme of ['light','dark'] as const){
+  await page.emulateMedia({colorScheme:scheme});
+  const pixels=await page.evaluate(async({href,scheme})=>{
+   const img=new Image();img.src=href+(href.includes('?')?'&':'?')+'appearance='+scheme;await img.decode();
+   const canvas=document.createElement('canvas');canvas.width=64;canvas.height=64;
+   const ctx=canvas.getContext('2d')!;ctx.drawImage(img,0,0,64,64);const data=ctx.getImageData(0,0,64,64).data;
+   const opaque=[];let transparent=0;
+   for(let index=0;index<data.length;index+=4){if(data[index+3]===0)transparent++;if(data[index+3]>240)opaque.push(data[index]);}
+   return {transparent,opaque:opaque.length,min:Math.min(...opaque),max:Math.max(...opaque)};
+  },{href:href!,scheme});
+  expect(pixels.transparent).toBeGreaterThan(1000);expect(pixels.opaque).toBeGreaterThan(100);
+  if(scheme==='light')expect(pixels.max).toBeLessThan(5);else expect(pixels.min).toBeGreaterThan(250);
+ }
 });

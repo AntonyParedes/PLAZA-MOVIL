@@ -93,16 +93,16 @@ test("Excel real conserva identificación, ocho cuotas, números, fechas y hojas
   assert.deepEqual(
     opened.worksheets.map((s) => s.name),
     [
-      "Cartera",
+      "Préstamos activos",
+      "Préstamos liquidados",
       "Pagos",
       "Penalidades",
       "Refinanciaciones",
       "Cobros por mes",
       "Resumen financiero",
-      "Guía",
     ],
   );
-  const sheet = opened.getWorksheet("Cartera")!;
+  const sheet = opened.getWorksheet("Préstamos activos")!;
   const value = (header: string) =>
     sheet.getRow(2).getCell(column(sheet, header)).value;
   assert.equal(value("DNI"), "01234567");
@@ -170,7 +170,7 @@ test("refinanciación conserva históricos sin sumar otra vez capital y selecci�
     selectedLoanIds: ["loan"],
   };
   const book = await buildCreditWorkbook(refi);
-  const sheet = book.getWorksheet("Cartera")!;
+  const sheet = book.getWorksheet("Préstamos activos")!;
   assert.equal(
     sheet.getRow(2).getCell(column(sheet, "TOTAL A COBRAR")).value,
     1180,
@@ -180,7 +180,7 @@ test("refinanciación conserva históricos sin sumar otra vez capital y selecci�
   assert.equal(sheet.getRow(2).getCell(column(sheet, "CUOTA 1")).value, 0);
   assert.equal(sheet.getRow(2).getCell(column(sheet, "CUOTA 5")).value, null);
   const empty = await buildCreditWorkbook({ ...data, selectedLoanIds: [] });
-  assert.equal(empty.getWorksheet("Cartera")!.rowCount, 1);
+  assert.equal(empty.getWorksheet("Préstamos activos")!.rowCount, 1);
   assert.equal(empty.getWorksheet("Pagos")!.rowCount, 1);
 });
 test("texto de clientes no se ejecuta como fórmula y céntimos grandes se conservan exactamente", async () => {
@@ -190,7 +190,7 @@ test("texto de clientes no se ejecuta como fórmula y céntimos grandes se conse
       { ...data.clients[0], full_name: '=HYPERLINK("https://example.test")' },
     ],
   });
-  const cell = book.getWorksheet("Cartera")!.getCell("F2");
+  const cell = book.getWorksheet("Préstamos activos")!.getCell("F2");
   assert.equal(cell.type, 3);
   assert.equal(cell.formula, undefined);
   assert.equal(excelMoney(9007199254740991n), "90071992547409.91");
@@ -228,12 +228,11 @@ test("resumen financiero global concilia caja, préstamos e ingresos aunque Cart
     cashMovements:[{id:"opening",kind:"apertura",amount_cents:200000,note:"Capital inicial",created_at:"2026-08-01T02:00:00Z"},{id:"out",kind:"retiro",amount_cents:5000,note:"Retiro registrado",created_at:"2026-09-01T15:00:00Z"}],
   };
   const book=await buildCreditWorkbook(input);
-  assert.equal(book.getWorksheet("Cartera")!.rowCount,1);
+  assert.equal(book.getWorksheet("Préstamos activos")!.rowCount,1);
   const summary=book.getWorksheet("Resumen financiero")!;
   for(const [title,value] of [["Capital pendiente en préstamos",1160],["Interés pendiente de cobro",35],["Saldo total por cobrar",1195],["Capital desembolsado acumulado",1500],["Interés cobrado (ganancia)",120],["Penalidades cobradas",50],["DINERO DISPONIBLE EN CAJA",960]] as const) assert.equal(metric(summary,title),value,title);
   const rows=summary.getRows(1,summary.rowCount)!;
-  assert.equal(rows.filter(row=>row.getCell(2).value==="Cliente Completo").length,2);
-  const movement=rows.find(row=>row.getCell(6).value==="opening")!;
+  const movement=rows.find(row=>row.getCell(5).value==="Capital inicial")!;
   assert.equal((movement.getCell(1).value as Date).toISOString().slice(0,10),"2026-07-31");
   assert.equal(movement.getCell(3).value,2000);
   assert.equal(movement.getCell(4).value,null);
@@ -242,4 +241,28 @@ test("resumen financiero global concilia caja, préstamos e ingresos aunque Cart
 test("caja sin configurar no se exporta como saldo cero", async () => {
  const book=await buildCreditWorkbook({...data,cashSummary:{configured:false,opening_cents:"0",contributions_cents:"0",withdrawals_cents:"0",received_cents:"36000",disbursed_cents:"100000",penalty_cents:"0",interest_cents:"12000",month_interest_cents:"0",balance_cents:null,as_of:data.today}});
  assert.equal(metric(book.getWorksheet("Resumen financiero")!,"DINERO DISPONIBLE EN CAJA"),null);
+});
+
+test("Excel separa activos y liquidados, acumula interés de refinanciaciones y capital devuelto sin duplicarlo", async () => {
+ const closed={...data.loans[0],id:"closed",status:"liquidado" as const,capital_pending:0,interest_pending:0};
+ const input:CreditExportData={...data,loans:[...data.loans,closed],periods:[...data.periods,
+  {...data.periods[0],id:"old-closed",loan_id:"closed",is_current:false},
+  {...data.periods[0],id:"refi-closed",loan_id:"closed",number:2,opening_capital:76000,interest_generated:6000}],
+  payments:[...data.payments,{...data.payments[0],id:"first-closed",loan_id:"closed",period_id:"old-closed"},
+   {...data.payments[0],id:"last-closed",loan_id:"closed",period_id:"refi-closed",amount_cents:82000,capital_cents:76000,interest_cents:6000,penalty_cents:5000,penalty_reason:"Plazo vencido",paid_on:"2026-10-10"}]};
+ const book=await buildCreditWorkbook(input);
+ const {default:ExcelJS}=await import("exceljs");const opened=new ExcelJS.Workbook();await opened.xlsx.load(await book.xlsx.writeBuffer());
+ const active=opened.getWorksheet("Préstamos activos")!, settled=opened.getWorksheet("Préstamos liquidados")!;
+ assert.equal(active.rowCount,2);assert.equal(settled.rowCount,2);
+ const value=(name:string)=>settled.getRow(2).getCell(column(settled,name)).value;
+ for(const [name,expected] of [["MONTO PRESTADO",1000],["INTERÉS GENERADO",180],["INTERÉS COBRADO",180],["CAPITAL DEVUELTO",1000],["PENALIDAD COBRADA",50],["TOTAL RECIBIDO",1230]] as const) assert.equal(value(name),expected,name);
+ assert.equal((value("FECHA DE LIQUIDACIÓN") as Date).toISOString().slice(0,10),"2026-10-10");
+ assert.equal(opened.getWorksheet("Guía"),undefined);
+ for(const name of ["Penalidades","Refinanciaciones"]) {
+  const headers=opened.getWorksheet(name)!.getRow(1).values as string[];
+  for(const id of ["ID PAGO","ID PRÉSTAMO","ID PERIODO"]) assert.ok(!headers.includes(id),`${name}: ${id}`);
+ }
+ const onlyClosed=await buildCreditWorkbook({...input,selectedLoanIds:["closed"]});
+ assert.equal(onlyClosed.getWorksheet("Préstamos activos")!.rowCount,1);
+ assert.equal(onlyClosed.getWorksheet("Préstamos liquidados")!.rowCount,2);
 });

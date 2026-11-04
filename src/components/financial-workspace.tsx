@@ -37,7 +37,6 @@ import {
   Download,
   Plus,
   MessageCircle,
-  CircleDollarSign,
   Banknote,
   CalendarDays,
   Clock3,
@@ -702,7 +701,7 @@ export default function FinancialWorkspace({
         `pm-creditos-${kind}.xlsx`,
       );
       setSuccess(
-        "Excel descargado. Incluye cartera, pagos, penalidades, refinanciaciones y el resumen global de préstamos y caja.",
+        "Excel descargado. Separa préstamos activos y liquidados e incluye pagos, penalidades, refinanciaciones y el resumen de caja y ganancias.",
       );
     } catch (cause) {
       setError(cause instanceof Error && cause.message.startsWith("No se pud") ? cause.message : "No se pudo generar el Excel. Inténtalo nuevamente.");
@@ -847,15 +846,8 @@ export default function FinancialWorkspace({
       )}
       {tab === "resumen" && (
         <>
-          <CashOverview role={role} />
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Kpi
-              label="Capital pendiente"
-              value={money(totals.capital)}
-              note="Capital por recuperar"
-              tone="purple"
-              icon={CircleDollarSign}
-            />
+          <CashOverview role={role} loans={data.loans} payments={data.payments} />
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <Kpi
               label="Total cobrado"
               value={money(totals.paid)}
@@ -876,7 +868,7 @@ export default function FinancialWorkspace({
             />
             <Kpi
               label="Cuotas vencidas"
-              value={installments.filter((i) => i.due_date < today).length}
+              value={installments.filter((i) => i.is_current && i.pending_cents > 0 && i.due_date < today && loanById(i.loan_id)?.status === "activo").length}
               note="Cuotas con saldo pendiente"
               icon={Clock3}
               tone="red"
@@ -1031,7 +1023,7 @@ export default function FinancialWorkspace({
             <DataTable caption="Registro de penalidades" headers={["Cliente", "Fecha", "Penalidad cobrada", "Motivo", "Préstamo"]} keys={payments.filter(p => (p.penalty_cents ?? 0) > 0).map(p => p.id)} rows={payments.filter(p => (p.penalty_cents ?? 0) > 0).map(p => [customerCell(loanById(p.loan_id)!), dateLabel(p.paid_on), money(p.penalty_cents!), p.penalty_reason ?? "", <Button key="open" variant="outline" onClick={() => openLoan(p.loan_id)}>Ver préstamo</Button>])} emptyTitle="Sin penalidades registradas" emptyDescription="Aquí aparecerán únicamente las penalidades cobradas al liquidar un préstamo." />
           </Card>
           <Card>
-            <SectionHeading title="Panel de cobranza" description="Exporta el resumen de prestatarios, saldos, cuotas y estados." action={<div className="flex flex-wrap gap-2"><Button disabled={loading || exporting} onClick={() => exportExcel("general")}><Download size={16} /> Panel de cobranza Excel</Button><Button variant="outline" onClick={exportGeneral}><Download size={16} /> Exportar panel CSV</Button></div>} />
+            <SectionHeading title="Panel de cobranza" description="Exporta activos y liquidados por separado, con capital devuelto, intereses y penalidades." action={<div className="flex flex-wrap gap-2"><Button disabled={loading || exporting} onClick={() => exportExcel("general")}><Download size={16} /> Panel de cobranza Excel</Button><Button variant="outline" onClick={exportGeneral}><Download size={16} /> Exportar panel CSV</Button></div>} />
             {portfolioFilters()}
           </Card>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Banknote, CircleDollarSign, RefreshCw } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 import { cents, formatPEN } from "@/lib/finance";
+import FinancialCharts from "./financial-charts";
+import type { Loan, Payment } from "@/lib/portal";
 import { dateLabel } from "@/lib/portal";
 import { cashKindLabel, cashSummarySchema, cashMoney, type CashMovement, type CashSummary } from "@/lib/cash";
 import { useLiveRevision } from "@/hooks/use-live-revision";
@@ -16,7 +18,7 @@ function messageFor(error: { code?: string; message: string }) {
     return "Para habilitar Caja, ejecuta la migración 202610270009_cash.sql en Supabase SQL Editor.";
   return error.message;
 }
-export default function CashOverview({ role }: { role: "administrador" | "jefe" }) {
+export default function CashOverview({ role, loans, payments }: { role: "administrador" | "jefe"; loans: Loan[]; payments: Payment[] }) {
   const [summary, setSummary] = useState<CashSummary | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -123,10 +125,12 @@ export default function CashOverview({ role }: { role: "administrador" | "jefe" 
     <SectionHeading title="Caja y ganancias" description="Resumen de toda la operación, independiente de la búsqueda de clientes." action={<div className="flex flex-wrap gap-2">{refreshButton}{summary && <Button variant="outline" onClick={() => { setOpen(true); setSuccess(""); }}>Ver caja</Button>}</div>} />
     {error && <Notice error>{error}{summary && " Se muestran los últimos valores cargados."}</Notice>}
     {!summary ? <Card><p role="status">{loading ? "Cargando caja y ganancias…" : "Caja no disponible. Revisa el aviso y vuelve a actualizar."}</p></Card> : <>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <Kpi label="Caja disponible" value={summary.balance_cents === null ? "Sin configurar" : cashMoney(summary.balance_cents)} note="Dinero inicial + aportes + pagos recibidos − préstamos entregados − retiros" icon={Banknote} tone={negative ? "red" : "green"} />
+        <Kpi label="Capital por recuperar" value={formatPEN(loans.reduce((sum,l)=>sum+BigInt(l.capital_pending),0n))} note="Capital pendiente de toda la cartera; no incluye interés." icon={Banknote} tone="purple" />
         <Kpi label="Interés cobrado (ganancia)" value={formatPEN(BigInt(summary.interest_cents))} note="Total histórico cobrado. El capital recuperado y el interés pendiente no son ganancia." icon={CircleDollarSign} tone="purple" />
       </div>
+      <FinancialCharts summary={summary} loans={loans} payments={payments} />
       {!summary.configured && <Notice>Registra el dinero inicial anterior a todos los préstamos del sistema para calcular la caja.{role === "jefe" && " Solicita esta configuración a un administrador."}</Notice>}
       {negative && <Notice error>La caja calculada es negativa. Revisa el dinero inicial, los aportes, los retiros y las operaciones registradas para conciliarla con el dinero real.</Notice>}
       <p role="status" className="text-xs text-slate-500">{loading ? "Actualizando caja…" : `Actualización automática · Fecha de Lima: ${dateLabel(summary.as_of)}`}</p>
