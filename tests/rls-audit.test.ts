@@ -4,17 +4,17 @@ import { randomUUID } from 'node:crypto';
 import { rlsAuditDatabase } from './audit/rls-fixture';
 import { admin, chief, outsider } from './helpers';
 
-const tables=['profiles','clients','audit_events','loans','loan_periods','installments','payments','payment_installments','client_deletions','cash_movements'];
+const tables=['profiles','clients','audit_events','loans','loan_periods','installments','payments','payment_installments','client_deletions','cash_movements','payment_corrections'];
 const views=['installment_balances','penalty_register'];
-const privateFunctions=['require_admin()','generate_installments(uuid)','audit_client_change()','require_client_identification()','require_borrower_identification()','client_deletion_snapshot(uuid)'];
-const apiFunctions=['current_app_role()','create_loan(uuid,uuid,bigint,integer,integer,date)','record_payment(uuid,uuid,bigint,date)','refinance_loan(uuid,uuid)','refinance_loan(uuid,uuid,date,integer)','preview_client_deletion(uuid)','delete_client(uuid,text,text,text)','record_cash_movement(uuid,text,bigint,text)','cash_summary()','settle_loan_with_penalty(uuid,uuid,bigint,bigint,text,date)'];
+const privateFunctions=['require_admin()','generate_installments(uuid)','audit_client_change()','require_client_identification()','require_borrower_identification()','client_deletion_snapshot(uuid)','payment_correction_plan(uuid,text,bigint,date,text)','prevent_retired_payment_request()'];
+const apiFunctions=['current_app_role()','create_loan(uuid,uuid,bigint,integer,integer,date)','record_payment(uuid,uuid,bigint,date)','refinance_loan(uuid,uuid)','refinance_loan(uuid,uuid,date,integer)','preview_client_deletion(uuid)','delete_client(uuid,text,text,text)','record_cash_movement(uuid,text,bigint,text)','cash_summary()','settle_loan_with_penalty(uuid,uuid,bigint,bigint,text,date)','preview_payment_correction(uuid,text,bigint,date,text)','correct_payment(uuid,uuid,text,bigint,date,text,text)'];
 
-test('auditoría: diez tablas con RLS, dos vistas invoker y ACL mínimas sobre dieciséis funciones',async()=>{
+test('auditoría: once tablas con RLS, dos vistas invoker y ACL mínimas sobre veinte funciones',async()=>{
  const {db}=await rlsAuditDatabase();
  try {
   await db.exec('reset role');
   const catalog=(await db.query<{relname:string;relrowsecurity:boolean;reloptions:string[]|null}>("select relname,relrowsecurity,reloptions from pg_class where relnamespace='public'::regnamespace and relkind in ('r','v')")).rows;
-  assert.equal(catalog.filter(r=>tables.includes(r.relname)).length,10);
+  assert.equal(catalog.filter(r=>tables.includes(r.relname)).length,11);
   for(const table of tables)assert.equal(catalog.find(r=>r.relname===table)?.relrowsecurity,true,table);
   for(const view of views)assert.ok(catalog.find(r=>r.relname===view)?.reloptions?.includes('security_invoker=true'),view);
   for(const table of [...tables,...views])for(const role of ['anon','authenticated'])for(const privilege of ['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']){
@@ -46,6 +46,8 @@ test('auditoría: roles reales en SQL, sin lectura indebida, elevación de perfi
    `select delete_client('${first}','12345678','Prueba denegada','${snapshot}')`,
    `select record_cash_movement('${randomUUID()}','aporte',100,'Prueba denegada')`,
    `select settle_loan_with_penalty('${randomUUID()}','${activeLoan}',52500,100,'Prueba denegada','${today}')`,
+   `select preview_payment_correction(null,'anular',null,null,'Duplicado')`,
+   `select correct_payment('${randomUUID()}',null,'anular',null,null,'Duplicado','token')`,
   ];
   for(const identity of [chief,outsider,'']){
    await db.exec(`set request.jwt.claim.sub='${identity}'`);
@@ -54,7 +56,7 @@ test('auditoría: roles reales en SQL, sin lectura indebida, elevación de perfi
    const expected=identity===chief;
    for(const table of [...tables,...views]){
     const rows=(await db.query(`select * from public.${table}`)).rows;
-    assert.equal(rows.length>0,expected&&table!=='client_deletions',`${identity||'sin identidad'} SELECT ${table}`);
+    assert.equal(rows.length>0,expected&&!['client_deletions','payment_corrections'].includes(table),`${identity||'sin identidad'} SELECT ${table}`);
    }
    for(const sql of mutations)await assert.rejects(db.exec(sql),/Operación exclusiva del administrador/);
    if(!expected)await assert.rejects(db.exec('select cash_summary()'),/Acceso no autorizado/);

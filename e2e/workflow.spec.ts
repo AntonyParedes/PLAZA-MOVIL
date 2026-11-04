@@ -2108,3 +2108,85 @@ test('el filtro anual conserva el acumulado anterior y la línea incluye meses s
  await expect(rows.last()).toContainText('30.00');
  const line=page.getByTestId('interest-trend-line');expect((await line.getAttribute('points'))!.split(' ')).toHaveLength(Number(today.slice(5,7)));
 });
+
+async function correctionScenario(page:Page,{stale=false,lostResponse=false,role='administrador'}:{stale?:boolean;lostResponse?:boolean;role?:'administrador'|'jefe'}={}){
+ const base=await dashboardFixtures();const tables={...base,payment_corrections:[] as unknown[],cash_summary:cashFixture()};
+ const calls=await mockSupabase(page,role,tables);const requests:{name:string;body:Record<string,unknown>}[]=[];let reviews=0;let confirms=0;let committed=false;
+ const headers={'access-control-allow-origin':'*','access-control-allow-headers':'*','content-type':'application/json'};
+ await page.route(/\/rest\/v1\/rpc\/(preview_payment_correction|correct_payment)$/,async route=>{
+  if(route.request().method()==='OPTIONS'){await route.fulfill({status:204,headers});return;}
+  const name=new URL(route.request().url()).pathname.split('/').at(-1)!;const body=route.request().postDataJSON();requests.push({name,body});
+  const p=tables.payments.find(p=>p.id===body.p_payment)??base.payments[0];
+  if(name==='preview_payment_correction'){
+   reviews++;const annul=body.p_action==='anular';const next=annul?null:{...p,amount_cents:body.p_amount,paid_on:body.p_paid_on};
+   await route.fulfill({headers,body:JSON.stringify({confirmation_token:reviews===1?'a'.repeat(32):'b'.repeat(32),payment_id:p.id,full_name:'Maria Liquidada',dni:'12345672',balance_before_cents:'0',balance_after_cents:annul?'106000':String(p.amount_cents-body.p_amount),cash_delta_cents:annul?String(-p.amount_cents):String(body.p_amount-p.amount_cents),interest_delta_cents:annul?'-6000':'0',penalty_delta_cents:'0',status_after:'activo',periods_count:1,recalculated_payments:annul?0:1,before_payment:p,after_payment:next})});return;
+  }
+  confirms++;
+  if(stale&&confirms===1){await route.fulfill({status:400,headers,body:JSON.stringify({message:'Los datos cambiaron. Actualiza la revisión antes de confirmar'})});return;}
+  if(!committed){
+   const before={...p};const loan=tables.loans.find(l=>l.id===p.loan_id)!;
+   if(body.p_action==='anular'){tables.payments=tables.payments.filter(row=>row.id!==p.id);loan.capital_pending=100000;loan.interest_pending=6000;}
+   else {p.amount_cents=body.p_amount;p.paid_on=body.p_paid_on;loan.capital_pending=106000-body.p_amount;}
+   loan.status='activo';tables.payment_corrections.push({id:'correction-1',action:body.p_action,reason:body.p_reason,created_at:new Date().toISOString(),before_payment:before,after_payment:body.p_action==='anular'?null:{...p}});committed=true;
+  }
+  if(lostResponse&&confirms===1){await route.fulfill({status:503,headers,body:JSON.stringify({message:'No se recibió la confirmación. Intenta nuevamente.'})});return;}
+  await route.fulfill({headers,body:JSON.stringify('33333333-3333-4333-8333-333333333333')});
+ });
+ await login(page);await navigateModule(page,'Panel general');await page.getByRole('button',{name:'Ver detalle de Maria Liquidada',exact:true}).click();
+ return {tables,calls,requests,detail:page.getByRole('dialog')};
+}
+
+test('administrador revisa y anula duplicado; saldo se reabre y el original se conserva en auditoría',async({page})=>{
+ const {detail,requests}=await correctionScenario(page);
+ await detail.getByRole('button',{name:/Corregir pago 1:/}).click();const form=detail.getByRole('region',{name:'Corregir pago registrado'});
+ await form.getByRole('combobox',{name:'Tipo de corrección'}).selectOption('anular');await form.getByLabel('Motivo de la corrección').fill('Se registró dos veces por error');
+ await form.getByRole('button',{name:'Revisar corrección',exact:true}).click();
+ const confirm=form.getByRole('button',{name:'Confirmar anulación del pago',exact:true});await expect(confirm).toBeDisabled();
+ await expect(form.getByRole('region',{name:'Revisión de la corrección'})).toContainText('1,060.00');
+ expect(requests.filter(r=>r.name==='correct_payment')).toHaveLength(0);
+ await form.getByRole('checkbox').check();await confirm.click();
+ await expect(form).toHaveCount(0);await expect(detail.getByRole('table',{name:'Pagos de este préstamo'})).not.toBeVisible();
+ await detail.getByText('Correcciones anteriores',{exact:true}).click();const audit=detail.getByRole('table',{name:'Auditoría de correcciones de pagos'});await expect(audit).toContainText('Anulado');await expect(audit).toContainText('Se registró dos veces por error');await expect(audit).toContainText('1,060.00');
+ expect(requests.filter(r=>r.name==='correct_payment')).toHaveLength(1);
+});
+
+test('corregir monto y fecha invalida la revisión al editar; una revisión obsoleta no se confirma',async({page})=>{
+ const {detail,requests}=await correctionScenario(page,{stale:true});const {limaDate,addDays}=await import('../src/lib/portal');
+ await detail.getByRole('button',{name:/Corregir pago 1:/}).click();const form=detail.getByRole('region',{name:'Corregir pago registrado'});
+ await form.getByLabel('Monto aplicado al préstamo (S/)',{exact:true}).fill('1000');await form.getByLabel('Fecha correcta del pago').fill(addDays(limaDate(),-1));await form.getByLabel('Motivo de la corrección').fill('Monto equivocado al registrar');
+ await form.getByRole('button',{name:'Revisar corrección',exact:true}).click();await expect(form.getByRole('button',{name:'Confirmar corrección del pago',exact:true})).toBeDisabled();
+ await form.getByLabel('Monto aplicado al préstamo (S/)',{exact:true}).fill('990');await expect(form.getByRole('region',{name:'Revisión de la corrección'})).toHaveCount(0);
+ await form.getByRole('button',{name:'Revisar corrección',exact:true}).click();await form.getByRole('checkbox').check();await form.getByRole('button',{name:'Confirmar corrección del pago',exact:true}).click();
+ await expect(form).toContainText('Los datos cambiaron');await expect(form.getByRole('region',{name:'Revisión de la corrección'})).toHaveCount(0);
+ await form.getByRole('button',{name:'Revisar corrección',exact:true}).click();await form.getByRole('checkbox').check();await form.getByRole('button',{name:'Confirmar corrección del pago',exact:true}).click();await expect(form).toHaveCount(0);
+ const commits=requests.filter(r=>r.name==='correct_payment');expect(commits).toHaveLength(2);expect(commits[1].body).toMatchObject({p_amount:99000,p_paid_on:addDays(limaDate(),-1)});
+});
+
+test('reintentar corrección tras perder respuesta conserva el UUID y no repite el ajuste',async({page})=>{
+ const {detail,requests,tables}=await correctionScenario(page,{lostResponse:true});await detail.getByRole('button',{name:/Corregir pago 1:/}).click();const form=detail.getByRole('region',{name:'Corregir pago registrado'});
+ await form.getByRole('combobox',{name:'Tipo de corrección'}).selectOption('anular');await form.getByLabel('Motivo de la corrección').fill('Pago duplicado');await form.getByRole('button',{name:'Revisar corrección',exact:true}).click();await form.getByRole('checkbox').check();await form.getByRole('button',{name:'Confirmar anulación del pago',exact:true}).click();
+ await expect(form).toContainText('No se recibió la confirmación');await form.getByRole('button',{name:'Confirmar anulación del pago',exact:true}).click();await expect(form).toHaveCount(0);
+ const commits=requests.filter(r=>r.name==='correct_payment');expect(commits).toHaveLength(2);expect(commits[0].body.p_request).toBe(commits[1].body.p_request);expect(tables.payment_corrections).toHaveLength(1);
+});
+
+test('consulta no muestra botones para corregir pagos ni la auditoría administrativa',async({page})=>{
+ const {detail,requests}=await correctionScenario(page,{role:'jefe'});await expect(detail.getByRole('table',{name:'Pagos de este préstamo'})).toBeVisible();await expect(detail.getByRole('button',{name:/Corregir/})).toHaveCount(0);await expect(detail.getByText('Correcciones anteriores',{exact:true})).toHaveCount(0);expect(requests).toHaveLength(0);
+});
+
+test('aviso de posible duplicado exige revisar antes de registrar otro cobro igual',async({page})=>{
+ const fixtures=await dashboardFixtures();const {limaDate}=await import('../src/lib/portal');fixtures.payments.push({...fixtures.payments[0],id:'same-amount',loan_id:'loan-0',period_id:'period-0',amount_cents:26500,paid_on:limaDate()});
+ const calls=await mockSupabase(page,'administrador',fixtures);await login(page);await navigateModule(page,'Panel general');await page.getByRole('button',{name:'Ver detalle de Ana Socia',exact:true}).click();const detail=page.getByRole('dialog');await detail.getByLabel('Monto (S/)',{exact:true}).fill('265');
+ await expect(detail.getByRole('note')).toContainText('Posible pago duplicado');
+ let confirmation='';page.once('dialog',async dialog=>{confirmation=dialog.message();await dialog.dismiss();});await detail.getByRole('button',{name:'Confirmar pago',exact:true}).click();expect(confirmation).toContain('ATENCIÓN: ya hay 1 pago');expect(calls).toHaveLength(0);
+});
+
+test('corrección móvil muestra la revisión y el enlace a SQL si falta activar la función',async({page})=>{
+ const {detail}=await correctionScenario(page);await page.setViewportSize({width:375,height:900});await page.emulateMedia({colorScheme:'dark'});
+ await detail.getByRole('button',{name:/Corregir pago 1:/}).click();const form=detail.getByRole('region',{name:'Corregir pago registrado'});
+ await form.getByRole('combobox',{name:'Tipo de corrección'}).selectOption('anular');await form.getByLabel('Motivo de la corrección').fill('Pago registrado por duplicado');await form.getByRole('button',{name:'Revisar corrección',exact:true}).click();
+ await expect(form.getByRole('region',{name:'Revisión de la corrección'})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+ await page.screenshot({path:'test-results/correccion-pago-movil.png',fullPage:true});
+ await form.getByLabel('Motivo de la corrección').fill('Duplicado confirmado en revisión');
+ await page.route('**/rest/v1/rpc/preview_payment_correction',route=>route.request().method()==='OPTIONS'?route.fulfill({status:204,headers:{'access-control-allow-origin':'*','access-control-allow-headers':'*'}}):route.fulfill({status:404,headers:{'access-control-allow-origin':'*','content-type':'application/json'},body:JSON.stringify({code:'PGRST202',message:'Could not find the function'})}));
+ await form.getByRole('button',{name:'Revisar corrección',exact:true}).click();await expect(form.getByRole('link',{name:'Abrir SQL de correcciones de pagos'})).toHaveAttribute('href',/202611040011_payment_corrections.sql/);await expect(form.getByRole('button',{name:'Confirmar anulación del pago',exact:true})).toHaveCount(0);
+});

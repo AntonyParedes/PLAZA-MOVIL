@@ -59,3 +59,7 @@ Consulta el [análisis y organización de Inicio](ANALISIS-INICIO.md). Se priori
 ## Rediseño aprobado de Inicio
 
 Se implementa la [nueva organización de Inicio](INICIO-REDISENO.md), con un único resumen, recuperación de capital, línea sobre las barras mensuales, vista acumulada y vencimientos visibles ordenados por fecha. Se retiran las tarjetas repetidas y el bloque Más indicadores de cartera. Los botones de caja y préstamos continúan con sus operaciones y permisos existentes.
+
+## Corrección administrativa de pagos
+
+La instrucción actual del usuario permite corregir monto o fecha y anular registros equivocados, con revisión previa y motivo. Se implementa en la ficha del préstamo, en Pagos registrados → Corregir. Se incluye auditoría, reconstrucción de periodos refinanciados y aviso de posible duplicado. Requiere [activar SQL 011](CORRECCIONES-PAGOS.md). El original queda archivado; no se elimina el historial de correcciones.

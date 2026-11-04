@@ -4,7 +4,7 @@ Base de desarrollo de una aplicación de préstamos personales en PEN y zona Ame
 
 ## Estado real
 
-Implementados: acceso por correo/contraseña, roles, consulta/alta/edición de clientes, panel financiero, préstamos, cronogramas, pagos parciales y totales, refinanciaciones, historial, alertas, WhatsApp manual, reportes XLSX completos y CSV, y apariencia día/noche manual o automática. Montos flexibles: hasta S/500 al 7 % mensual, mayores de S/500 al 6 %, siempre por uno o dos meses (cuatro u ocho cuotas). La tasa es automática y el interés se calcula sobre el capital original por el número de meses. Las operaciones financieras utilizan RPC SQL transaccionales, bloqueos e idempotencia; pagos definitivos sin anulación ni eliminación, según decisión del usuario.
+Implementados: acceso por correo/contraseña, roles, consulta/alta/edición de clientes, panel financiero, préstamos, cronogramas, pagos parciales y totales, refinanciaciones, historial, alertas, WhatsApp manual, reportes XLSX completos y CSV, y apariencia día/noche manual o automática. Montos flexibles: hasta S/500 al 7 % mensual, mayores de S/500 al 6 %, siempre por uno o dos meses (cuatro u ocho cuotas). La tasa es automática y el interés se calcula sobre el capital original por el número de meses. Las operaciones financieras utilizan RPC SQL transaccionales, bloqueos e idempotencia; correcciones administrativas de pagos con motivo, revisión previa y conservación del original en auditoría, según la instrucción actual del usuario.
 
 **Sin proyecto Supabase conectado: autenticación, persistencia y permisos aún no se han validado contra el servicio real.** Hay pruebas en PostgreSQL local con Auth simulado.
 
@@ -161,3 +161,7 @@ Este cambio visual **no requiere SQL nuevo**. Publicar el nuevo commit desde Ver
 ### Rapi Créditos: flujos orientados a la persona
 
 El aplicativo usa el nombre Rapi Créditos y la identidad de Plaza Móvil. Nuevo préstamo comienza por elegir al cliente, continúa con condiciones y termina con una revisión completa. Desde la ficha se accede directamente a prestar o cobrar. Cobros y caja muestran el resultado previsto, y abrir otra cuenta limpia el importe anterior sin alterar la sincronización de la cuenta abierta. Ver [revisión de los flujos](docs/FLUJOS-USO.md). No requiere SQL adicional.
+
+## Correcciones de pagos
+
+Para anular duplicados o corregir monto/fecha, aplicar [la migración 011](supabase/migrations/202611040011_payment_corrections.sql) en Supabase SQL Editor y publicar la versión actualizada. La migración no cambia pagos existentes automáticamente. Uso y reglas de reconstrucción: [Correcciones de pagos](docs/CORRECCIONES-PAGOS.md).

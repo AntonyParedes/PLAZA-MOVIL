@@ -412,7 +412,7 @@ export default function Workspace() {
                   : "Puedes consultar clientes, préstamos, cobros e informes."}
               </p>
               <p>
-                Los pagos registrados son definitivos. Un préstamo puede
+                Los registros de pago equivocados se corrigen con motivo y auditoría por un administrador. Un préstamo puede
                 liquidarse o refinanciarse conforme a las condiciones acordadas.
               </p>
               <p className="rounded-xl bg-slate-50 p-4">

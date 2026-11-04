@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { PaymentCorrectionForm, PaymentCorrectionHistory } from "@/components/payment-corrections";
 import LoanApplication from "@/components/loan-application";
 import CashOverview from "@/components/cash-overview";
 import { useLiveRevision } from "@/hooks/use-live-revision";
@@ -98,6 +99,8 @@ export default function FinancialWorkspace({
   const [selected, setSelected] = useState(initialLoanId ?? "");
   const [refinanceDraft, setRefinanceDraft] = useState<{ key: string; start: string; months: 1 | 2 } | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
+  const [correctingPayment, setCorrectingPayment] = useState<Payment | null>(null);
+  const registeredPaymentsRef = useRef<HTMLDivElement>(null);
   const [penaltyDraft, setPenaltyDraft] = useState<{ key: string; amount: string; reason: string } | null>(null);
   const [paidOn, setPaidOn] = useState(limaDate);
   const mutationLock = useRef(false);
@@ -219,6 +222,8 @@ export default function FinancialWorkspace({
     catch (cause) { paymentValidationError = cause instanceof Error ? cause.message : "Revisa el importe."; }
   }
 
+  let possibleDuplicates=0;
+  try { if(paymentAmount) possibleDuplicates=data.payments.filter(p=>p.loan_id===selected&&p.amount_cents===cents(paymentAmount)&&p.paid_on===paidOn).length; } catch { /* The existing amount validation explains invalid input. */ }
   const selectedQuotas = data.installments
     .filter(
       (i) => i.loan_id === selected && i.is_current && i.pending_cents > 0,
@@ -233,7 +238,7 @@ export default function FinancialWorkspace({
     args: Record<string, string | number>,
     confirmation: string,
   ) {
-    if (role !== "administrador" || mutationLock.current) return false;
+    if (role !== "administrador" || mutationLock.current || busy) return false;
     if (!window.confirm(confirmation)) return false;
     mutationLock.current = true;
     setBusy(true);
@@ -275,6 +280,7 @@ export default function FinancialWorkspace({
   }
   function openLoan(id: string) {
     setSelected(id);
+    setCorrectingPayment(null);
     setPaymentAmount("");
     setPaidOn(limaDate());
     setPenaltyDraft(null);
@@ -299,14 +305,14 @@ export default function FinancialWorkspace({
         await mutate("settle_loan_with_penalty", {
           p_loan: selected, p_expected_balance: Number(settlementBalance), p_penalty: penalty,
           p_reason: penaltyDraft!.reason.trim(), p_paid_on: paidOn,
-        }, `¿Liquidar el préstamo de ${selectedClient?.full_name ?? "este cliente"}? Saldo: ${money(settlementBalance)}. Penalidad: ${money(penalty)}. Total a cobrar: ${money(settlementBalance + BigInt(penalty))}. La penalidad se registra por separado. El pago no se podrá anular.`);
+        }, `¿Liquidar el préstamo de ${selectedClient?.full_name ?? "este cliente"}? Saldo: ${money(settlementBalance)}. Penalidad: ${money(penalty)}. Total a cobrar: ${money(settlementBalance + BigInt(penalty))}. La penalidad se registra por separado. Si hubo un error, un administrador podrá corregirlo con motivo y revisión de saldos.`);
         return;
       }
       if (!selectedLoan) return;
       const amount = cents(paymentAmount);
       const distribution = applyPayment(amount, selectedLoan.interest_pending, selectedLoan.capital_pending);
       await mutate("record_payment", { p_loan: selected, p_amount: amount, p_paid_on: paidOn },
-        `¿Registrar ${money(amount)} de ${selectedClient?.full_name ?? "este cliente"}, DNI ${selectedClient?.dni ?? "por registrar"}? Interés: ${money(distribution.interestPaid)}. Capital: ${money(distribution.capitalPaid)}. Saldo después: ${money(distribution.pendingCapital + distribution.pendingInterest)}. El pago no se podrá anular.`);
+        `¿Registrar ${money(amount)} de ${selectedClient?.full_name ?? "este cliente"}, DNI ${selectedClient?.dni ?? "por registrar"}? Interés: ${money(distribution.interestPaid)}. Capital: ${money(distribution.capitalPaid)}. Saldo después: ${money(distribution.pendingCapital + distribution.pendingInterest)}. ${possibleDuplicates>0?`ATENCIÓN: ya hay ${possibleDuplicates} pago(s) con este monto y fecha. Confirma solo si es otro cobro real. `:""}Si hubo un error, un administrador podrá corregirlo con motivo y revisión de saldos.`);
 
     } catch (e) {
       setError(e instanceof Error ? e.message : "Monto inválido.");
@@ -1130,6 +1136,7 @@ export default function FinancialWorkspace({
                         />
                       </label>
                     </div>
+                    {!penaltyActive && possibleDuplicates>0 && <aside role="note" className="rounded-xl border border-[var(--warning-border)] bg-[var(--warning-bg)] p-4 text-sm text-[var(--warning-text)]"><strong>Posible pago duplicado</strong><p>Ya hay {possibleDuplicates} pago(s) con ese monto y fecha en este préstamo. Revisa los registros antes de confirmar otro cobro.</p><button type="button" className="mt-2 min-h-11 font-semibold underline" onClick={()=>registeredPaymentsRef.current?.scrollIntoView({behavior:"auto",block:"start"})}>Revisar pagos registrados</button></aside>}
                     {!penaltyActive && paymentPreview && <div aria-label="Distribución estimada del pago" className="rounded-xl bg-blue-50 p-4 text-sm"><h4 className="mb-3 font-semibold">Así se aplicará el pago</h4><dl className="grid gap-3 sm:grid-cols-3"><div><dt>Interés</dt><dd className="font-semibold">{money(paymentPreview.interestPaid)}</dd></div><div><dt>Capital</dt><dd className="font-semibold">{money(paymentPreview.capitalPaid)}</dd></div><div><dt>Saldo después del pago</dt><dd className="font-semibold">{money(paymentPreview.pendingCapital + paymentPreview.pendingInterest)}</dd></div></dl></div>}
                     {paymentValidationError && <Notice error>{paymentValidationError}</Notice>}
                     {penaltyActive && <fieldset className="space-y-4 rounded-xl border border-[var(--warning-border)] bg-[var(--warning-bg)] p-4">
@@ -1145,8 +1152,7 @@ export default function FinancialWorkspace({
                       </Button>
                     </div>
                     <p className="text-xs leading-5 text-slate-500">
-                      Los pagos son definitivos. Revisa monto y fecha antes de
-                      confirmar.
+                      Revisa monto y fecha antes de confirmar. Un administrador puede corregir registros equivocados con motivo y revisión del resultado.
                     </p>
                   </form>
                 </Card>
@@ -1188,7 +1194,7 @@ export default function FinancialWorkspace({
             <div>
               <SectionHeading
                 title="Historial de periodos y cuotas"
-                description="Se conservan las fechas y los cronogramas originales."
+                description="Se conservan las fechas de cada periodo. Los importes reflejan las correcciones auditadas."
               />
               {data.periods
                 .filter((p) => p.loan_id === selected)
@@ -1246,11 +1252,11 @@ export default function FinancialWorkspace({
                   </div>
                 ))}
             </div>
-            <div>
+            <div ref={registeredPaymentsRef}>
               <SectionHeading title="Pagos registrados" />
               <DataTable
                 caption="Pagos de este préstamo"
-                headers={["Fecha", "Total cobrado", "Interés", "Capital", "Penalidad", "Motivo de penalidad"]}
+                headers={["Fecha", "Total cobrado", "Interés", "Capital", "Penalidad", "Motivo de penalidad", ...(role === "administrador" ? ["Corrección"] : [])]}
                 keys={data.payments
                   .filter((p) => p.loan_id === selected)
                   .sort((a, b) => a.created_at.localeCompare(b.created_at))
@@ -1258,17 +1264,20 @@ export default function FinancialWorkspace({
                 rows={data.payments
                   .filter((p) => p.loan_id === selected)
                   .sort((a, b) => a.created_at.localeCompare(b.created_at))
-                  .map((p) => [
+                  .map((p, index) => [
                     dateLabel(p.paid_on),
                     money(paymentReceived(p)),
                     money(p.interest_cents),
                     money(p.capital_cents),
                     money(p.penalty_cents ?? 0),
                     p.penalty_reason ?? "—",
+                    ...(role === "administrador" ? [<Button key="correct" variant="outline" disabled={busy || loading} aria-label={`Corregir pago ${index + 1}: ${money(paymentReceived(p))} del ${dateLabel(p.paid_on)}`} onClick={() => { setCorrectingPayment(p); setError(""); setSuccess(""); }}>Corregir</Button>] : []),
                   ])}
                 emptyTitle="Aún no hay pagos"
                 emptyDescription="El historial se actualizará al registrar un pago."
               />
+              {role === "administrador" && correctingPayment && <PaymentCorrectionForm key={correctingPayment.id} payment={correctingPayment} minDate={data.periods.find(p=>p.id===correctingPayment.period_id)?.start_date} onBusyChange={setBusy} onClose={()=>setCorrectingPayment(null)} onComplete={()=>{setCorrectingPayment(null);setPaymentAmount("");setPenaltyDraft(null);setSuccess("Corrección guardada. Se han actualizado el saldo, la caja y los intereses cobrados.");setRevision(r=>r+1);}} />}
+              {role === "administrador" && <PaymentCorrectionHistory key={selected} loanId={selected} revision={`${revision}:${liveRevision}`} />}
             </div>
           </div>
         )}
