@@ -546,8 +546,8 @@ for (const width of [375, 430, 768, 1024, 1440, 1920])
     await expect(page.getByText("S/ 4,000.00", { exact: true })).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Cobros de hoy y esta semana" }),
-    ).toBeVisible();
-    await expect(page.getByText("Pagado", { exact: true })).toBeVisible();
+    ).toHaveCount(0);
+    await expect(page.getByRole("searchbox")).toHaveCount(0);
     const overflow = () =>
       page.evaluate(
         () => document.documentElement.scrollWidth > window.innerWidth,
@@ -1254,7 +1254,7 @@ for (const width of [375, 1440]) {
 
 
 for (const width of [375, 1440]) {
-  test(`inicio operativo con seis módulos y agenda completa a ${width}px`, async ({ page }) => {
+  test(`inicio simplificado con seis módulos y gráficos a ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     const fixtures = await dashboardFixtures();
     const { limaDate, addDays } = await import("../src/lib/portal");
@@ -1265,21 +1265,15 @@ for (const width of [375, 1440]) {
     await login(page);
     await expect(page.getByRole("heading", { name: "Inicio", exact: true })).toBeVisible();
     await expect(page.getByText("Capital prestado", { exact: true })).not.toBeVisible();
-    await page.getByRole("button", { name: "Vencidos", exact: true }).click();
-    const agenda = page.getByRole("table", { name: "Cronograma de cobros" });
-    await expect(agenda).toContainText("Ana Socia");
-    await expect(agenda).not.toContainText("Diego Puntual");
-    await page.getByRole("button", { name: "Próximos 7 días", exact: true }).click();
-    await expect(agenda).toContainText("Diego Puntual");
-    await expect(agenda).not.toContainText("Ana Socia");
-    await page.getByRole("button", { name: "Esta semana", exact: true }).click();
+    await expect(page.getByRole("searchbox")).toHaveCount(0);
+    await expect(page.getByRole("table", { name: "Cronograma de cobros" })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Gráficos financieros de todo el historial" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Exportar Excel completo" })).toHaveCount(0);
     if (width < 1024) await page.getByRole("button", { name: "Abrir menú" }).click();
     const menu = page.getByRole("navigation", { name: "Menú principal" }).filter({ visible: true });
     await expect(menu.getByRole("button")).toHaveCount(6);
     if (width < 1024) await page.keyboard.press("Escape");
     await page.mouse.move(0, 0);
-    await expect(page.getByRole("button", { name: "Esta semana", exact: true })).toHaveCSS("background-color", "rgb(78, 184, 82)");
     await page.screenshot({ path: `test-results/inicio-operativo-${width}.png`, fullPage: true });
     await navigateModule(page, "Préstamos");
     await expect(page.getByRole("table", { name: "Panel general de préstamos" })).toBeVisible();
@@ -1718,7 +1712,10 @@ test("consulta muestra caja y ganancia histórica sin permisos de escritura ni f
   const cash = page.getByRole("region", { name: "Caja y ganancias", exact: true });
   await expect(cash).toContainText("S/ 4,250.00");
   await expect(cash).toContainText("S/ 60.00");
+  await navigateModule(page,"Panel general");
   await page.getByRole("searchbox").fill("Ana");
+  await navigateModule(page,"Inicio");
+  await expect(page.getByRole("searchbox")).toHaveCount(0);
   await expect(cash).toContainText("S/ 4,250.00");
   await cash.getByRole("button", { name: "Ver caja", exact: true }).click();
   const dialog = page.getByRole("dialog");
@@ -2029,7 +2026,10 @@ test('Inicio muestra gráficos globales históricos, detalle mensual y conserva 
  await charts.getByText('Ver detalle mensual',{exact:true}).click();
  const table=charts.getByRole('table',{name:'Detalle mensual histórico'});
  await expect(table).toBeVisible();await expect(table).toContainText('Capital devuelto');
- const before=await charts.innerText();await page.getByRole('searchbox').fill('Ana');
+ const before=await charts.innerText();
+ await navigateModule(page,'Panel general');await page.getByRole('searchbox').fill('Ana');await navigateModule(page,'Inicio');
+ await expect(page.getByRole('searchbox')).toHaveCount(0);
+ await charts.getByText('Ver detalle mensual',{exact:true}).click();
  expect(await charts.innerText()).toBe(before);
  const summary=page.getByRole('region',{name:'Caja y ganancias',exact:true});
  await expect(summary).toContainText('Capital por recuperar');

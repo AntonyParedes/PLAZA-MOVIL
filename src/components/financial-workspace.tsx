@@ -94,7 +94,6 @@ export default function FinancialWorkspace({
   const liveRevision = useLiveRevision();
   const tab = view === "prestamos" ? "general" : view;
   const [success, setSuccess] = useState("");
-  const [agendaRange, setAgendaRange] = useState<"hoy" | "semana" | "vencidos" | "proximos">("hoy");
   const [stateFilter, setStateFilter] = useState("todos");
   const [memberFilter, setMemberFilter] = useState("todos");
   const [showNew, setShowNew] = useState(Boolean(initialBorrowerId));
@@ -173,10 +172,10 @@ export default function FinancialWorkspace({
   }
 
   const matches = (loan: Loan) =>
-    (!clientFocus || loan.client_id === clientFocus) &&
+    (tab === "resumen" || !clientFocus || loan.client_id === clientFocus) &&
     `${customer(loan)?.full_name ?? ""} ${customer(loan)?.dni ?? ""} ${customer(loan)?.stand_code ?? ""}`
       .toLowerCase()
-      .includes(search.toLowerCase());
+      .includes(tab === "resumen" ? "" : search.toLowerCase());
   const loans = data.loans.filter(matches);
   const payments = data.payments.filter((p) =>
     Boolean(loanById(p.loan_id) && matches(loanById(p.loan_id)!)),
@@ -192,7 +191,6 @@ export default function FinancialWorkspace({
     const timer = setInterval(() => setToday(limaDate()), 60000);
     return () => clearInterval(timer);
   }, []);
-  const week = weekBounds(today);
   const selectedLoan = loanById(selected);
   const selectedClient = selectedLoan ? customer(selectedLoan) : undefined;
   const selectedStatus = selectedLoan
@@ -456,22 +454,6 @@ export default function FinancialWorkspace({
     "Días de atraso",
     "Refinanciado",
   ];
-  const visibleSchedule = data.installments.filter(
-    (i) =>
-      i.is_current &&
-      Boolean(loanById(i.loan_id) && matches(loanById(i.loan_id)!)),
-  );
-  const agenda = visibleSchedule
-    .filter((i) =>
-      agendaRange === "hoy"
-        ? i.due_date === today
-        : agendaRange === "semana"
-          ? i.due_date >= week.start && i.due_date <= week.end
-          : agendaRange === "vencidos"
-            ? i.pending_cents > 0 && i.due_date < today
-            : i.pending_cents > 0 && i.due_date > today && i.due_date <= addDays(today, 7),
-    )
-    .sort((a, b) => a.due_date.localeCompare(b.due_date));
   const refinanced = data.periods
     .filter(
       (p) =>
@@ -538,69 +520,6 @@ export default function FinancialWorkspace({
                 ? "pago parcial"
                 : "pendiente"
         }
-      />
-    );
-  }
-  function quotaTable(rows: Installment[], includeWhatsapp = false) {
-    return (
-      <DataTable
-        caption="Cronograma de cobros"
-        headers={[
-          "Cliente",
-          "Cuota",
-          "Día de pago",
-          "Programado",
-          "Saldo",
-          "Estado",
-          "Acción",
-        ]}
-        keys={rows.map((i) => i.id)}
-        rows={rows.map((i) => {
-          const l = loanById(i.loan_id)!;
-          const c = customer(l);
-          const text = c
-            ? whatsappReminder(c, l, i, data.periods, data.installments, today)
-            : "";
-          return [
-            customerCell(l),
-            i.number,
-            <div key="date">
-              <p className="capitalize">{weekdayLabel(i.due_date)}</p>
-              <p className="mt-1 text-xs text-slate-500">
-                {dateLabel(i.due_date)}
-              </p>
-            </div>,
-            money(i.scheduled_cents),
-            money(i.pending_cents),
-            quotaBadge(i),
-            <div key="actions" className="flex flex-wrap justify-end gap-2">
-              <Button variant="outline" onClick={() => openLoan(l.id)}>
-                {i.pending_cents > 0 && role === "administrador"
-                  ? "Registrar pago"
-                  : "Ver préstamo"}
-              </Button>
-              {includeWhatsapp && c && i.pending_cents > 0 && (
-                <Button asChild variant="outline">
-                  <a
-                    aria-label={`Recordar pago a ${c.full_name} por WhatsApp`}
-                    href={`https://wa.me/51${c.phone}?text=${encodeURIComponent(text)}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <MessageCircle size={16} />
-                    <span className="sr-only lg:not-sr-only">WhatsApp</span>
-                  </a>
-                </Button>
-              )}
-            </div>,
-          ];
-        })}
-        emptyTitle={
-          agendaRange === "hoy"
-            ? "Sin cobros programados para hoy"
-            : "Sin cuotas para este rango"
-        }
-        emptyDescription="Consulta esta semana o ajusta los filtros para revisar el cronograma."
       />
     );
   }
@@ -759,11 +678,11 @@ export default function FinancialWorkspace({
           </Button>
         </div>
       </div>
-      <Card className="search-panel !p-0">
+      {tab !== "resumen" && <Card className="search-panel !p-0">
         <div className="max-w-xl">
           <ClientSearch value={search} onChange={setSearch} />
         </div>
-      </Card>
+      </Card>}
       {tab === "general" && (
         <>
           {view === "prestamos" && <SectionHeading title="Cartera de préstamos" description="Saldo, cuota semanal y estado de cada prestatario." action={role === "administrador" && <Button disabled={busy || loading} onClick={() => { setShowNew(true); setError(""); setSuccess(""); }}><Plus size={16} /> Nuevo préstamo</Button>} />}
@@ -873,31 +792,6 @@ export default function FinancialWorkspace({
               icon={Clock3}
               tone="red"
             />
-          </div>
-          <div>
-            <SectionHeading
-              title="Cobros de hoy y esta semana"
-              description="Identifica las cuotas pagadas, pendientes y vencidas."
-              action={
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant={agendaRange === "hoy" ? "default" : "outline"}
-                    onClick={() => setAgendaRange("hoy")}
-                  >
-                    Hoy
-                  </Button>
-                  <Button
-                    variant={agendaRange === "semana" ? "default" : "outline"}
-                    onClick={() => setAgendaRange("semana")}
-                  >
-                    Esta semana
-                  </Button>
-                  <Button variant={agendaRange === "vencidos" ? "default" : "outline"} onClick={() => setAgendaRange("vencidos")}>Vencidos</Button>
-                  <Button variant={agendaRange === "proximos" ? "default" : "outline"} onClick={() => setAgendaRange("proximos")}>Próximos 7 días</Button>
-                </div>
-              }
-            />
-            {quotaTable(agenda, true)}
           </div>
           <details className="surface p-4">
             <summary className="min-h-11 font-semibold text-sm">Más indicadores de cartera</summary>
