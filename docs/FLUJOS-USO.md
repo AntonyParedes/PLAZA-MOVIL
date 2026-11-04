@@ -28,7 +28,7 @@ La revisión aplica los criterios de apple-design de orden lógico, contexto, ac
 
 ## Identidad visual
 
-El nombre visible se actualiza a **Rapi Créditos** en acceso, pestaña, navegación, configuración, exportaciones y mensajes de WhatsApp. Se incorpora una versión para pantalla del logo de Plaza Móvil a partir de la referencia aportada, preparada sobre fondo morado para la marca blanca. No se sustituyen claves internas de sesión/tema ni tablas de Supabase; se conserva la preferencia de apariencia del navegador.
+El nombre **Rapi Créditos** se mantiene en el título del navegador, acceso, configuración, exportaciones y mensajes de WhatsApp. La cabecera de marca muestra únicamente el logo de Plaza Móvil con fondo transparente, sin nombre ni subtítulo al lado. El símbolo del logo se usa en el menú contraído y como icono de la pestaña (`src/app/icon.png`); se elimina el favicon predeterminado de Next.js. No se sustituyen claves internas de sesión/tema ni tablas de Supabase; se conserva la preferencia de apariencia del navegador.
 
 ## Verificación
 

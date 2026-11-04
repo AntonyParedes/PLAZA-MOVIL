@@ -1978,7 +1978,19 @@ test('marca Rapi Créditos aparece en pestaña, acceso y menú con logo legible'
  await expect(page.getByText('Bienvenido a Rapi Créditos',{exact:true})).toBeVisible();
  const logo=page.getByRole('img',{name:'Plaza Móvil',exact:true});await expect(logo).toBeVisible();
  await expect.poll(()=>logo.evaluate((img:HTMLImageElement)=>img.complete&&img.naturalWidth>0)).toBe(true);
- await login(page);await expect(page.locator('.brand-name').filter({visible:true})).toContainText('Rapi Créditos');
+ await login(page);
+ await expect(page.locator('.brand-name')).toHaveCount(0);
+ await expect(page.locator('.brand-subtitle')).toHaveCount(0);
+ const visibleLogo=page.getByRole('img',{name:'Plaza Móvil',exact:true}).filter({visible:true});
+ await expect(visibleLogo).toBeVisible();
+ await expect(visibleLogo).toHaveAttribute('src',/plaza-movil-transparent/);
+ await page.screenshot({path:'test-results/solo-logo-dia.png'});
+ await page.getByRole('button',{name:'Contraer menú',exact:true}).click();
+ await expect(page.getByRole('img',{name:'Plaza Móvil',exact:true}).filter({visible:true})).toHaveAttribute('src',/plaza-movil-symbol/);
+ const iconHref=await page.locator('link[rel="icon"]').first().getAttribute('href');
+ expect(iconHref).toContain('/icon.png');
+ const icon=await page.request.get(iconHref!);expect(icon.ok()).toBe(true);
+
 });
 
 

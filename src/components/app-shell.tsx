@@ -40,18 +40,10 @@ const navigation = [
 ] as const;
 export function Brand({ compact = false }: { compact?: boolean }) {
   return (
-    <div className="brand flex items-center gap-3">
+    <div className="brand flex items-center" aria-label="Rapi Créditos">
       <span className={cn("brand-logo shrink-0", compact && "brand-logo-compact")}>
-        <Image src="/brand/plaza-movil-logo.png" alt="Plaza Móvil" width={116} height={56} style={{ height: "auto" }} priority />
+        <Image src={compact ? "/brand/plaza-movil-symbol.png" : "/brand/plaza-movil-transparent.png"} alt="Plaza Móvil" width={compact ? 64 : 200} height={compact ? 64 : 100} style={{ height: "auto" }} priority />
       </span>
-      {!compact && (
-        <div>
-          <p className="brand-name text-lg font-semibold tracking-tight">Rapi Créditos</p>
-          <p className="brand-subtitle mt-0.5 text-[11px]">
-            Gestión financiera
-          </p>
-        </div>
-      )}
     </div>
   );
 }

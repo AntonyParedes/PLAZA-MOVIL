@@ -444,8 +444,6 @@ h2, h3 { letter-spacing: -0.025em; }
 button, a, summary, input, select, textarea { touch-action: manipulation; }
 button, a, summary { scroll-margin-block: 6rem; }
 .brand-mark { border-radius: 0.8rem; box-shadow: inset 0 1px 0 #ffffff30, 0 2px 5px #102b1814; }
-.brand-name { font-size: 1.125rem; letter-spacing: -0.04em; }
-.brand-subtitle { opacity: 0.66; letter-spacing: 0.015em; }
 .app-navigation {
   color: var(--navigation-text);
   background: var(--navigation-bg);
@@ -631,7 +629,7 @@ fieldset:disabled { opacity: 0.65; }
 input:disabled, select:disabled, textarea:disabled { cursor: not-allowed; }
 .workflow-person { overflow-wrap: anywhere; }
 
-.brand-logo { display: grid; place-items: center; width: 6.25rem; height: 3.25rem; padding: 0.25rem; border-radius: 0.5rem; background: #211827; }
+.brand-logo { display: grid; place-items: center; width: 11rem; height: 5.5rem; }
+.brand-logo:not(.brand-logo-compact) img { filter: brightness(0) invert(1); }
 .brand-logo img { display: block; width: 100%; height: auto; max-height: 100%; object-fit: contain; }
-.brand-logo-compact { width: 2.75rem; height: 2.5rem; padding: 0.15rem; }
-.brand-name { line-height: 1.15; }
+.brand-logo-compact { width: 2.75rem; height: 2.75rem; }
