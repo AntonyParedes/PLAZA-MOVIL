@@ -1,32 +1,58 @@
 "use client";
-import type { CashSummary } from '@/lib/cash';
-import { cashMoney } from '@/lib/cash';
-import { chartPercent, financialOverview } from '@/lib/financial-overview';
-import type { Loan, Payment } from '@/lib/portal';
-import { formatPEN } from '@/lib/finance';
-import { Card } from './ui/dashboard';
 
-export default function FinancialCharts({summary,loans,payments}:{summary:CashSummary;loans:Loan[];payments:Payment[]}){
+import {useEffect,useId,useRef,useState} from 'react';
+import {capitalRecovery,chartPercent,financialOverview,interestTimeline} from '@/lib/financial-overview';
+import type {Loan,Payment} from '@/lib/portal';
+import {formatPEN} from '@/lib/finance';
+
+export default function FinancialCharts({loans,payments,today}:{loans:Loan[];payments:Payment[];today:string}){
+ const recovery=capitalRecovery(loans,payments);
  const overview=financialOverview(loans,payments);
- const amounts=[{label:'Caja disponible',value:summary.balance_cents===null?null:BigInt(summary.balance_cents),color:'var(--chart-green)'},
-  {label:'Capital por recuperar',value:overview.capitalPending,color:'var(--chart-gray)'},
-  {label:'Ganancia cobrada',value:BigInt(summary.interest_cents),color:'var(--chart-purple)'}];
- const max=amounts.reduce((m,v)=>{const n=v.value===null?0n:v.value<0n?-v.value:v.value;return n>m?n:m;},0n);
- const maxInterest=overview.months.reduce((m,v)=>v.interest>m?v.interest:m,0n);
- return <section className="grid gap-4 xl:grid-cols-2" aria-label="Gráficos financieros de todo el historial">
-  <Card><h3 className="font-semibold">Tu dinero, de un vistazo</h3><p className="mt-1 text-sm text-slate-500">Situación actual · toda la operación</p>
-   <dl className="mt-6 space-y-5">{amounts.map(item=><div key={item.label}><div className="flex flex-wrap justify-between gap-2 text-sm"><dt>{item.label}</dt><dd className="font-semibold tabular-nums">{item.value===null?'Sin configurar':cashMoney(item.value.toString())}</dd></div><div aria-hidden="true" className="mt-2 h-3 overflow-hidden rounded-full bg-[var(--neutral-100)]"><div className="h-full rounded-full" style={{width:`${item.value===null?0:chartPercent(item.value,max)}%`,background:item.color}}/></div></div>)}</dl>
-   <p className="mt-5 text-xs text-slate-500">Son conceptos distintos, no se suman entre sí. La ganancia ya está incluida en los pagos que entraron a caja.{summary.balance_cents?.startsWith('-')?' La caja es negativa: revisa sus movimientos.':''}</p>
-  </Card>
-  <Card><h3 className="font-semibold">Cómo ha crecido tu ganancia</h3><p className="mt-1 text-sm text-slate-500">Interés cobrado por mes · todo el historial</p>
-   {overview.months.length===0?<p className="py-12 text-sm text-slate-500">Todavía no hay cobros registrados para graficar.</p>:<>
-    <div className="mt-5 overflow-x-auto" role="region" aria-label="Evolución mensual del interés cobrado" tabIndex={0}>
-     <div className="flex h-44 items-end gap-4 pb-1" style={{minWidth:Math.max(240,overview.months.length*88)}}>
-      {overview.months.map(row=><div key={row.month} className="flex h-full flex-1 flex-col items-center justify-end gap-2 text-center text-xs"><span className="whitespace-nowrap font-semibold tabular-nums">{formatPEN(row.interest)}</span><div aria-hidden="true" className="w-8 rounded-t-md bg-[var(--chart-purple)]" style={{height:`${chartPercent(row.interest,maxInterest)*.95}px`}}/><span>{new Intl.DateTimeFormat('es-PE',{month:'short',year:'2-digit',timeZone:'UTC'}).format(new Date(`${row.month}-01T00:00:00Z`))}</span></div>)}
-     </div>
-    </div>
-    <details className="mt-4"><summary className="min-h-11 cursor-pointer text-sm font-medium">Ver detalle mensual</summary><div className="overflow-x-auto"><table className="w-full text-left text-xs" aria-label="Detalle mensual histórico"><thead><tr>{['Mes','Interés cobrado','Capital devuelto','Penalidades'].map(label=><th key={label} className="p-2">{label}</th>)}</tr></thead><tbody>{overview.months.map(row=><tr key={row.month}><th className="p-2">{row.month}</th><td className="p-2">{formatPEN(row.interest)}</td><td className="p-2">{formatPEN(row.capital)}</td><td className="p-2">{formatPEN(row.penalty)}</td></tr>)}</tbody></table></div></details>
+ const timeline=interestTimeline(overview.months,today);
+ const [mode,setMode]=useState<'monthly'|'cumulative'>('monthly');
+ const [year,setYear]=useState('all');
+ const years=[...new Set(timeline.map(row=>row.month.slice(0,4)))].reverse();
+ const selectedYear=years.includes(year)?year:'all';
+ const rows=timeline.filter(row=>selectedYear==='all'||row.month.startsWith(selectedYear));
+ const values=rows.map(row=>mode==='monthly'?row.interest:row.accumulated);
+ const max=values.reduce((m,v)=>v>m?v:m,0n);
+ const plotRef=useRef<HTMLDivElement>(null);
+ const [availableWidth,setAvailableWidth]=useState(320);
+ const titleId=useId(),descriptionId=useId();
+ useEffect(()=>{
+  const element=plotRef.current;if(!element)return;
+  const observer=new ResizeObserver(entries=>{const width=Math.floor(entries[0].contentRect.width);if(width>0)setAvailableWidth(width);});
+  observer.observe(element);return()=>observer.disconnect();
+ },[]);
+ const cellWidth=Math.max(84,...values.map(v=>formatPEN(v).length*7));
+ const width=Math.max(availableWidth,rows.length*cellWidth+24);
+ const baseline=176,range=128;
+ const coordinates=values.map((value,index)=>({x:12+(index+.5)*(width-24)/Math.max(1,values.length),y:baseline-chartPercent(value,max)/100*range,value}));
+ const points=coordinates.map(p=>`${p.x},${p.y}`).join(' ');
+ const monthLabel=(month:string)=>new Intl.DateTimeFormat('es-PE',{month:'short',year:'2-digit',timeZone:'UTC'}).format(new Date(`${month}-01T00:00:00Z`));
+ return <section className="home-charts" aria-label="Gráficos financieros de todo el historial">
+  <section className="home-capital" aria-labelledby="capital-recovery-title">
+   <header className="home-chart-heading"><div><h3 id="capital-recovery-title">Recuperación de capital</h3><p>¿Cuánto del dinero prestado ya volvió?</p></div>{recovery.reconciled&&<span className="home-percentage">{Math.round(chartPercent(recovery.returned,recovery.disbursed))} %</span>}</header>
+   <p className="home-capital-total">{formatPEN(recovery.disbursed)} <small>entregados en préstamos</small></p>
+   {recovery.disbursed===0n?<p className="home-chart-note">Todavía no hay préstamos registrados.</p>:<>
+    {recovery.reconciled&&<div className="home-capital-track" role="img" aria-label={`Capital devuelto: ${formatPEN(recovery.returned)}. Capital pendiente: ${formatPEN(recovery.pending)}.`}><span style={{width:`${chartPercent(recovery.returned,recovery.disbursed)}%`}}/></div>}
+    <dl className="home-capital-legend"><div><dt><span className="home-key home-key-returned"/>Devuelto</dt><dd>{formatPEN(recovery.returned)}</dd></div><div><dt><span className="home-key home-key-pending"/>Por recuperar</dt><dd>{recovery.reconciled?`${Math.round(chartPercent(recovery.pending,recovery.disbursed))} %`:formatPEN(recovery.pending)}</dd></div></dl>
+    <p className="home-chart-note">{recovery.reconciled?'Refinanciar no cuenta como otro desembolso. Porcentajes redondeados.':'Los importes de capital no concilian todavía. Actualiza los datos y revisa los registros antes de interpretar una proporción.'}</p>
    </>}
-  </Card>
+  </section>
+  <section className="home-interest" aria-labelledby="interest-evolution-title">
+   <header className="home-chart-heading"><div><h3 id="interest-evolution-title">Interés cobrado</h3><p>{mode==='monthly'?'Cada barra representa un mes.':'Interés acumulado desde el primer cobro.'}</p></div><div className="home-chart-mode" role="group" aria-label="Vista del gráfico"><button type="button" aria-pressed={mode==='monthly'} onClick={()=>setMode('monthly')}>Por mes</button><button type="button" aria-pressed={mode==='cumulative'} onClick={()=>setMode('cumulative')}>Acumulado</button></div></header>
+   {years.length>1&&<label className="home-year">Año del gráfico<select value={selectedYear} onChange={e=>setYear(e.target.value)}><option value="all">Todo el historial</option>{years.map(y=><option key={y}>{y}</option>)}</select></label>}
+   <div ref={plotRef} className="home-chart-scroll" role="region" aria-label="Evolución mensual del interés cobrado" tabIndex={0}>
+    {rows.length===0?<p className="home-chart-empty">Todavía no hay cobros registrados para graficar.</p>:<svg width={width} height={222} viewBox={`0 0 ${width} 222`} role="img" aria-labelledby={`${titleId} ${descriptionId}`}>
+     <title id={titleId}>{mode==='monthly'?'Interés cobrado por mes':'Interés acumulado'}: barras y línea de evolución</title><desc id={descriptionId}>La línea conecta el importe de cada barra en la misma escala de soles, sin pronosticar cobros. Consulta los importes exactos en la tabla mensual.</desc>
+     {[baseline,baseline-range/2,baseline-range].map(y=><line key={y} x1="0" y1={y} x2={width} y2={y} className="home-chart-grid"/>)}
+     {coordinates.map((p,index)=><rect key={rows[index].month} x={p.x-15} y={p.y} width="30" height={baseline-p.y} rx="3" className="home-interest-bar"><title>{rows[index].month}: {formatPEN(p.value)}</title></rect>)}
+     <polyline data-testid="interest-trend-line" points={points} fill="none" className="home-trend-line"/>
+     {coordinates.map((p,index)=><g key={rows[index].month}><circle cx={p.x} cy={p.y} r="4" className="home-trend-point"/><text x={p.x} y={p.y-14} textAnchor="middle" className="home-chart-amount">{formatPEN(p.value)}</text><text x={p.x} y="204" textAnchor="middle" className="home-chart-month">{monthLabel(rows[index].month)}{rows[index].month===today.slice(0,7)?'*':''}</text></g>)}
+    </svg>}
+   </div>
+   {rows.length>0&&<><p className="home-chart-note home-line-caption"><span className="home-line-key"/>Línea: evolución del importe. {rows.some(row=>row.month===today.slice(0,7))?'* Mes en curso. ':''}{rows.length===1?'La línea se extenderá cuando haya más meses.':''}</p><details className="home-monthly-detail"><summary>Ver detalle mensual</summary><div className="home-chart-scroll"><table aria-label="Detalle mensual histórico"><thead><tr>{['Mes','Interés cobrado','Acumulado','Capital devuelto','Penalidades'].map(label=><th key={label} scope="col">{label}</th>)}</tr></thead><tbody>{rows.map(row=><tr key={row.month}><th scope="row">{row.month}</th><td>{formatPEN(row.interest)}</td><td>{formatPEN(row.accumulated)}</td><td>{formatPEN(row.capital)}</td><td>{formatPEN(row.penalty)}</td></tr>)}</tbody></table></div></details></>}
+  </section>
  </section>;
 }

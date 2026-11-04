@@ -55,3 +55,7 @@ Playwright cubre orden persona/condiciones, selección y búsqueda, invalidació
 ## Inicio con gráficos
 
 Consulta el [análisis y organización de Inicio](ANALISIS-INICIO.md). Se prioriza todo el historial, caja, capital por recuperar e interés cobrado, con comparación visual y evolución mensual. La búsqueda de clientes no altera estos gráficos globales. Inicio ya no incluye el buscador ni la agenda de cobros de hoy/semana. La búsqueda se conserva en los demás módulos, y los indicadores de Inicio abarcan toda la cartera. El contador de cuotas vencidas excluye pagadas, históricas y préstamos liquidados.
+
+## Rediseño aprobado de Inicio
+
+Se implementa la [nueva organización de Inicio](INICIO-REDISENO.md), con un único resumen, recuperación de capital, línea sobre las barras mensuales, vista acumulada y vencimientos visibles ordenados por fecha. Se retiran las tarjetas repetidas y el bloque Más indicadores de cartera. Los botones de caja y préstamos continúan con sus operaciones y permisos existentes.

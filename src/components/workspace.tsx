@@ -436,6 +436,7 @@ export default function Workspace() {
             }
             initialBorrowerId={financeIntent.borrowerId}
             initialLoanId={financeIntent.loanId}
+            onPanel={() => { setSearch(""); navigate("general"); }}
             onClients={query => { setSearch(query ?? ""); setMemberFilter("todos"); navigate("clientes"); }}
             search={search}
             onSearchChange={setSearch}

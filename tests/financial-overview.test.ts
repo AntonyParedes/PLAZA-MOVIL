@@ -14,3 +14,20 @@ test('historial vacío y escalas negativas o grandes no inventan cifras ni pierd
  assert.equal(chartPercent(0n,0n),0);assert.equal(chartPercent(-50n,100n),50);
  const big=900719925474099100n;assert.equal(chartPercent(big,big),100);
 });
+
+test('capital recuperado cuenta una sola vez el original y excluye interés y penalidades',async()=>{
+ const {capitalRecovery}=await import('../src/lib/financial-overview');
+ assert.deepEqual(capitalRecovery([loan],[payment]),{disbursed:100000n,pending:76000n,returned:24000n,reconciled:true});
+ const final={...payment,id:'last',period_id:'refinance',amount_cents:82000,capital_cents:76000,interest_cents:6000,penalty_cents:5000};
+ assert.deepEqual(capitalRecovery([{...loan,capital_pending:0,status:'liquidado'}],[payment,final]),{disbursed:100000n,pending:0n,returned:100000n,reconciled:true});
+ assert.equal(capitalRecovery([loan],[]).reconciled,false);
+ assert.equal(capitalRecovery([],[]).reconciled,false);
+});
+test('línea mensual incluye ceros en meses sin pagos y acumula desde el primer cobro',async()=>{
+ const {interestTimeline}=await import('../src/lib/financial-overview');
+ const grouped=financialOverview([loan],[payment,{...payment,paid_on:'2026-03-01',interest_cents:6000}]).months;
+ const rows=interestTimeline(grouped,'2026-04-04');
+ assert.deepEqual(rows.map(r=>[r.month,r.interest,r.accumulated]),[['2026-01',12000n,12000n],['2026-02',0n,12000n],['2026-03',6000n,18000n],['2026-04',0n,18000n]]);
+ assert.deepEqual(interestTimeline([],'2026-04-04'),[]);
+ assert.deepEqual(interestTimeline(financialOverview([],[{...payment,paid_on:'2025-12-31'}]).months,'2026-01-02').map(r=>r.month),['2025-12','2026-01']);
+});

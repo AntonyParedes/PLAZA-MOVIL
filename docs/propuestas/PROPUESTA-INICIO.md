@@ -60,3 +60,7 @@ La maqueta es un HTML autónomo con datos ilustrativos y sin conexión a Supabas
 Ejemplo coherente usado para caja configurada: apertura S/20.000, desembolsos S/14.000 y cobros S/6.260 dan caja S/12.260. Los cobros del ejemplo se descomponen en capital S/5.455, interés S/695 y penalidades S/110. Estas cifras no afirman el saldo real del negocio. La versión inicial muestra caja sin configurar, como en la captura.
 
 Una implementación reutilizaría las consultas, reglas financieras y permisos existentes. No necesita cambiar RLS, tasas, plazos ni la distribución de pagos. La maqueta muestra una dirección de diseño; el código y la publicación del aplicativo permanecen fuera de este entregable.
+
+## Implementación aprobada
+
+El usuario aprobó esta dirección y solicitó una línea sobre cada barra mensual. La implementación se documenta en [INICIO-REDISENO.md](../INICIO-REDISENO.md); esta maqueta permanece como referencia del diseño propuesto.

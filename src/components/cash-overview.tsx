@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Banknote, CircleDollarSign, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 import { cents, formatPEN } from "@/lib/finance";
 import FinancialCharts from "./financial-charts";
@@ -10,7 +10,7 @@ import { dateLabel } from "@/lib/portal";
 import { cashKindLabel, cashSummarySchema, cashMoney, type CashMovement, type CashSummary } from "@/lib/cash";
 import { useLiveRevision } from "@/hooks/use-live-revision";
 import { Button } from "./ui/button";
-import { Card, DataTable, Kpi, Notice, SectionHeading, Sheet } from "./ui/dashboard";
+import { Card, DataTable, Notice, Sheet } from "./ui/dashboard";
 
 const supabase = getSupabase();
 function messageFor(error: { code?: string; message: string }) {
@@ -18,7 +18,7 @@ function messageFor(error: { code?: string; message: string }) {
     return "Para habilitar Caja, ejecuta la migración 202610270009_cash.sql en Supabase SQL Editor.";
   return error.message;
 }
-export default function CashOverview({ role, loans, payments }: { role: "administrador" | "jefe"; loans: Loan[]; payments: Payment[] }) {
+export default function CashOverview({ role, loans, payments, today, refreshRevision }: { role: "administrador" | "jefe"; loans: Loan[]; payments: Payment[]; today: string; refreshRevision: number }) {
   const [summary, setSummary] = useState<CashSummary | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -58,7 +58,7 @@ export default function CashOverview({ role, loans, payments }: { role: "adminis
     }
     void load();
     return () => { active = false; };
-  }, [revision, liveRevision]);
+  }, [revision, liveRevision, refreshRevision]);
   useEffect(() => {
     if (!open || !summary) return;
     let active = true;
@@ -122,18 +122,23 @@ export default function CashOverview({ role, loans, payments }: { role: "adminis
   } catch { /* Input is validated before recording. */ }
   const refreshButton = <Button variant="outline" disabled={loading || busy} onClick={() => setRevision(n => n + 1)} aria-label="Actualizar caja"><RefreshCw size={16} /> Actualizar caja</Button>;
   return <section aria-label="Caja y ganancias" className="cash-overview space-y-4">
-    <SectionHeading title="Caja y ganancias" description="Resumen de toda la operación, independiente de la búsqueda de clientes." action={<div className="flex flex-wrap gap-2">{refreshButton}{summary && <Button variant="outline" onClick={() => { setOpen(true); setSuccess(""); }}>Ver caja</Button>}</div>} />
-    {error && <Notice error>{error}{summary && " Se muestran los últimos valores cargados."}</Notice>}
+    {error && <Notice error>{error}{summary && " Se muestran los últimos valores cargados."}<button type="button" className="home-text-action" disabled={loading} onClick={()=>setRevision(n=>n+1)}>Reintentar consulta de caja</button></Notice>}
     {!summary ? <Card><p role="status">{loading ? "Cargando caja y ganancias…" : "Caja no disponible. Revisa el aviso y vuelve a actualizar."}</p></Card> : <>
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <Kpi label="Caja disponible" value={summary.balance_cents === null ? "Sin configurar" : cashMoney(summary.balance_cents)} note="Dinero inicial + aportes + pagos recibidos − préstamos entregados − retiros" icon={Banknote} tone={negative ? "red" : "green"} />
-        <Kpi label="Capital por recuperar" value={formatPEN(loans.reduce((sum,l)=>sum+BigInt(l.capital_pending),0n))} note="Capital pendiente de toda la cartera; no incluye interés." icon={Banknote} tone="purple" />
-        <Kpi label="Interés cobrado (ganancia)" value={formatPEN(BigInt(summary.interest_cents))} note="Total histórico cobrado. El capital recuperado y el interés pendiente no son ganancia." icon={CircleDollarSign} tone="purple" />
-      </div>
-      <FinancialCharts summary={summary} loans={loans} payments={payments} />
-      {!summary.configured && <Notice>Registra el dinero inicial anterior a todos los préstamos del sistema para calcular la caja.{role === "jefe" && " Solicita esta configuración a un administrador."}</Notice>}
+      <section className="home-summary" aria-labelledby="home-summary-title">
+        <header className="home-summary-heading"><h3 id="home-summary-title">Resumen del negocio</h3><span>Todo el historial</span></header>
+        <dl className="home-summary-metrics">
+          <div className="home-metric home-cash"><dt>Caja disponible</dt>
+            {summary.balance_cents===null ? <><dd className="home-setup-title">Falta registrar la apertura</dd><p className="home-metric-note">Sin configurar{role === "jefe" ? " · Solicita la apertura a un administrador." : ""}</p></> : <dd className={negative ? "home-metric-negative" : ""}>{cashMoney(summary.balance_cents)}</dd>}
+            <button type="button" className="home-text-action" onClick={()=>{setOpen(true);setSuccess("");}}>{!summary.configured&&role==='administrador'?'Configurar mi caja':'Ver caja'}</button>
+          </div>
+          <div className="home-metric"><dt>Capital por recuperar</dt><dd>{formatPEN(loans.reduce((sum,l)=>sum+BigInt(l.capital_pending),0n))}</dd><p className="home-metric-note">Solo capital pendiente.</p></div>
+          <div className="home-metric home-gain"><dt>Interés cobrado (ganancia)</dt><dd>{formatPEN(BigInt(summary.interest_cents))}</dd><p className="home-metric-note">Ganancia recibida, sin capital ni penalidades.</p></div>
+        </dl>
+        <div className="home-summary-foot"><span><strong>{loans.filter(l=>l.status==='activo').length}</strong> {loans.filter(l=>l.status==='activo').length===1?'préstamo activo':'préstamos activos'}</span><span><strong>{loans.filter(l=>l.status==='liquidado').length}</strong> {loans.filter(l=>l.status==='liquidado').length===1?'liquidado':'liquidados'}</span><span><strong>{formatPEN(BigInt(summary.penalty_cents))}</strong> en penalidades cobradas</span></div>
+      </section>
       {negative && <Notice error>La caja calculada es negativa. Revisa el dinero inicial, los aportes, los retiros y las operaciones registradas para conciliarla con el dinero real.</Notice>}
-      <p role="status" className="text-xs text-slate-500">{loading ? "Actualizando caja…" : `Actualización automática · Fecha de Lima: ${dateLabel(summary.as_of)}`}</p>
+      <FinancialCharts loans={loans} payments={payments} today={today} />
+      <p role="status" className="home-update-status">{loading ? "Actualizando caja…" : `Actualización automática · Fecha de Lima: ${dateLabel(summary.as_of)}`}</p>
     </>}
     <Sheet open={open} onOpenChange={next => { if (!busy) setOpen(next); }} title="Caja y ganancias" description="Consulta el cálculo y registra movimientos de dinero.">
       {summary && <div className="space-y-6">

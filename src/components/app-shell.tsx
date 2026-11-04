@@ -126,7 +126,7 @@ export default function AppShell({
     );
   }
   return (
-    <div className="min-h-screen">
+    <div className={cn("min-h-screen", section === "dashboard" && "home-page")}>
       <a href="#contenido" className="skip-link">
         Ir al contenido
       </a>

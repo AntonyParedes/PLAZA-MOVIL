@@ -37,9 +37,6 @@ import {
   Download,
   Plus,
   MessageCircle,
-  Banknote,
-  CalendarDays,
-  Clock3,
   ChevronRight,
 } from "lucide-react";
 import {
@@ -47,7 +44,6 @@ import {
   Card,
   ClientSearch,
   DataTable,
-  Kpi,
   LoadingSkeleton,
   Notice,
   PaymentBadge,
@@ -66,6 +62,7 @@ export default function FinancialWorkspace({
   initialBorrowerId,
   initialLoanId,
   onClients,
+  onPanel,
   search,
   onSearchChange: setSearch,
 }: {
@@ -76,6 +73,7 @@ export default function FinancialWorkspace({
   initialBorrowerId?: string;
   initialLoanId?: string;
   onClients: (query?: string) => void;
+  onPanel: () => void;
   search: string;
   onSearchChange: (value: string) => void;
 }) {
@@ -384,12 +382,7 @@ export default function FinancialWorkspace({
           ]),
       ]);
   }
-  const totals = {
-    lent: loans.reduce((n, l) => n + BigInt(l.original_capital), 0n),
-    capital: loans.reduce((n, l) => n + BigInt(l.capital_pending), 0n),
-    interest: payments.reduce((n, p) => n + BigInt(p.interest_cents), 0n),
-    paid: payments.reduce((n, p) => n + paymentReceived(p), 0n),
-  };
+
   const groups = (key: "semana" | "mes") => {
     const map = new Map<string, { total: bigint; interest: bigint; penalty: bigint }>();
     payments.forEach((p) => {
@@ -454,6 +447,9 @@ export default function FinancialWorkspace({
     "Días de atraso",
     "Refinanciado",
   ];
+  const upcomingPeriods=data.periods.filter(p=>p.is_current&&p.end_date>=today&&p.end_date<=addDays(today,7)&&loanById(p.loan_id)?.status==='activo')
+    .sort((a,b)=>a.end_date.localeCompare(b.end_date)||(customer(loanById(a.loan_id)!)?.full_name??'').localeCompare(customer(loanById(b.loan_id)!)?.full_name??''));
+  const overdueCount=data.installments.filter(i=>i.is_current&&i.pending_cents>0&&i.due_date<today&&loanById(i.loan_id)?.status==='activo').length;
   const refinanced = data.periods
     .filter(
       (p) =>
@@ -630,7 +626,7 @@ export default function FinancialWorkspace({
   }
   if (loading && !hasData) return <LoadingSkeleton />;
   return (
-    <section className="space-y-6" aria-busy={loading}>
+    <section className={tab === "resumen" ? "home-screen space-y-6" : "space-y-6"} aria-busy={loading}>
       {loading && (
         <p role="status" className="sr-only">
           Actualizando saldos…
@@ -644,22 +640,20 @@ export default function FinancialWorkspace({
             {
               {
                 general: "Tu cobranza semanal",
-                resumen: "Tu cartera, de un vistazo",
+                resumen: "Mi cartera.",
                 prestamos: "Gestiona tus préstamos",
                 refinanciaciones: "Refinanciaciones e historial",
                 reportes: "Informes para tomar decisiones",
               }[tab]
             }
           </h2>
-          <p className="mt-2 text-sm text-slate-500">
-            {tab === "resumen"
-              ? "Supervisa los saldos y prioriza los cobros del día."
-              : tab === "general"
+          {tab !== "resumen" && <p className="mt-2 text-sm text-slate-500">
+            {tab === "general"
                 ? "Identifica quién debe pagar y abre su nombre para enviar un recordatorio."
                 : tab === "refinanciaciones"
                     ? "Revisa las condiciones y consulta los periodos refinanciados."
                     : "Descarga la información completa de tu cartera y movimientos."}
-          </p>
+          </p>}
         </div>
         <div className="flex flex-wrap gap-2">
           {tab === "reportes" && <Button
@@ -765,77 +759,20 @@ export default function FinancialWorkspace({
       )}
       {tab === "resumen" && (
         <>
-          <CashOverview role={role} loans={data.loans} payments={data.payments} />
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            <Kpi
-              label="Total cobrado"
-              value={money(totals.paid)}
-              note="Capital, intereses y penalidades recibidos"
-              icon={Banknote}
-              tone="green"
-            />
-            <Kpi
-              label="Cobros del día"
-              value={money(
-                payments
-                  .filter((p) => p.paid_on === today)
-                  .reduce((n, p) => n + paymentReceived(p), 0n),
-              )}
-              note="Pagos registrados hoy"
-              icon={CalendarDays}
-              tone="green"
-            />
-            <Kpi
-              label="Cuotas vencidas"
-              value={installments.filter((i) => i.is_current && i.pending_cents > 0 && i.due_date < today && loanById(i.loan_id)?.status === "activo").length}
-              note="Cuotas con saldo pendiente"
-              icon={Clock3}
-              tone="red"
-            />
-          </div>
-          <details className="surface p-4">
-            <summary className="min-h-11 font-semibold text-sm">Más indicadores de cartera</summary>
-            <dl className="grid gap-4 pt-3 sm:grid-cols-2 lg:grid-cols-4">
-              {[["Capital prestado", money(totals.lent)], ["Intereses cobrados", money(totals.interest)], ["Préstamos activos", loans.filter(l => l.status === "activo").length], ["Préstamos liquidados", loans.filter(l => l.status === "liquidado").length]].map(([label, value]) => <div key={label}><dt className="text-xs text-slate-500">{label}</dt><dd className="mt-1 font-semibold tabular-nums">{value}</dd></div>)}
-            </dl>
-          </details>
-          <details className="surface p-4">
-            <summary className="min-h-11 text-sm font-semibold">Préstamos próximos a finalizar</summary>
-            <p className="mb-3 text-xs text-slate-500">Periodos que terminan en los próximos siete días.</p>
-            {data.periods
-              .filter(
-                (p) =>
-                  p.is_current &&
-                  p.end_date >= today &&
-                  p.end_date <= addDays(today, 7) &&
-                  loanById(p.loan_id)?.status === "activo" &&
-                  matches(loanById(p.loan_id)!),
-              )
-              .map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => openLoan(p.loan_id)}
-                  className="flex min-h-11 w-full items-center justify-between gap-4 border-b border-slate-100 py-3 text-left text-sm"
-                >
-                  <span>{customer(loanById(p.loan_id)!)?.full_name}</span>
-                  <span className="text-slate-500">
-                    {dateLabel(p.end_date)}
-                  </span>
-                </button>
-              ))}
-            {!data.periods.some(
-              (p) =>
-                p.is_current &&
-                p.end_date >= today &&
-                p.end_date <= addDays(today, 7) &&
-                loanById(p.loan_id)?.status === "activo" &&
-                matches(loanById(p.loan_id)!),
-            ) && (
-              <p className="text-sm text-slate-500">
-                No hay periodos por finalizar en este rango.
-              </p>
-            )}
-          </details>
+          <CashOverview role={role} loans={data.loans} payments={data.payments} today={today} refreshRevision={revision} />
+          <section className="home-upcoming" aria-labelledby="upcoming-title">
+            <header className="home-upcoming-heading"><div><h3 id="upcoming-title">Próximos vencimientos</h3><p>Fechas de cierre del plazo · próximos 7 días</p></div><button type="button" className="home-text-action" onClick={onPanel}>Ver panel</button></header>
+            {upcomingPeriods.length===0 ? <p className="home-empty">No hay periodos por finalizar en este rango.</p> : <ul className="home-upcoming-list">{upcomingPeriods.slice(0,3).map(p=>{
+              const client=customer(loanById(p.loan_id)!);
+              const days=Math.round((Date.parse(`${p.end_date}T00:00:00Z`)-Date.parse(`${today}T00:00:00Z`))/86400000);
+              return <li key={p.id}><button type="button" onClick={()=>openLoan(p.loan_id)} aria-label={`Ver préstamo de ${client?.full_name ?? 'cliente'}, vence ${dateLabel(p.end_date)}`}>
+                <span className="home-due-date"><strong>{p.end_date.slice(8,10)}</strong><span>{new Intl.DateTimeFormat('es-PE',{month:'short',timeZone:'UTC'}).format(new Date(`${p.end_date}T00:00:00Z`))}</span></span>
+                <span className="home-due-person"><strong>{client?.full_name ?? 'Cliente no disponible'}</strong><small>Stand {client?.stand_code ?? 'por registrar'} · {client?.member_type ?? 'por registrar'}</small></span>
+                <span className="home-due-meta"><strong>{days===0?'Vence hoy':days===1?'Mañana':`En ${days} días`}</strong><small>Fin del plazo</small></span>
+              </button></li>;
+            })}</ul>}
+            <div className="home-collection-link"><span>{overdueCount>0?<span className="home-attention">{overdueCount} {overdueCount===1?'cuota vencida':'cuotas vencidas'} con saldo</span>:'Sin cuotas vencidas con saldo'}</span><button type="button" className="home-text-action" onClick={onPanel}>Revisar cobranza en el panel</button></div>
+          </section>
         </>
       )}
       {tab === "refinanciaciones" && (

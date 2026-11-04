@@ -122,7 +122,7 @@ async function login(page: Page) {
   ).toBeVisible();
   await expect(
     page.getByRole("heading", {
-      name: "Tu cartera, de un vistazo",
+      name: "Mi cartera.",
       exact: true,
     }),
   ).toBeVisible();
@@ -542,8 +542,8 @@ for (const width of [375, 430, 768, 1024, 1440, 1920])
     await page.setViewportSize({ width, height: 900 });
     await mockSupabase(page, "administrador", await dashboardFixtures());
     await login(page);
-    await page.getByText("Más indicadores de cartera", { exact: true }).click();
-    await expect(page.getByText("S/ 4,000.00", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading",{name:"Resumen del negocio",exact:true})).toBeVisible();
+    await expect(page.locator(".home-capital-total")).toContainText("4,000.00");
     await expect(
       page.getByRole("heading", { name: "Cobros de hoy y esta semana" }),
     ).toHaveCount(0);
@@ -1682,7 +1682,7 @@ test("caja permite configurar dinero inicial, registrar aportes y retiros sin du
   const cash = page.getByRole("region", { name: "Caja y ganancias", exact: true });
   await expect(cash).toContainText("Sin configurar");
   await expect(cash).toContainText("S/ 60.00");
-  await cash.getByRole("button", { name: "Ver caja", exact: true }).click();
+  await cash.getByRole("button", { name: /^(Ver caja|Configurar mi caja)$/ }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("no el efectivo que tienes hoy");
   await dialog.getByLabel("Dinero inicial (S/)", { exact: true }).fill("5000");
@@ -1717,7 +1717,7 @@ test("consulta muestra caja y ganancia histórica sin permisos de escritura ni f
   await navigateModule(page,"Inicio");
   await expect(page.getByRole("searchbox")).toHaveCount(0);
   await expect(cash).toContainText("S/ 4,250.00");
-  await cash.getByRole("button", { name: "Ver caja", exact: true }).click();
+  await cash.getByRole("button", { name: /^(Ver caja|Configurar mi caja)$/ }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("Interés cobrado este mes");
   await expect(dialog.getByLabel("Tipo de movimiento")).toHaveCount(0);
@@ -1732,7 +1732,7 @@ test("caja negativa muestra advertencia y sigue operativa al volver a la pestañ
   const cash = page.getByRole("region", { name: "Caja y ganancias", exact: true });
   await expect(cash).toContainText("−S/ 200.00");
   await expect(cash).toContainText("La caja calculada es negativa");
-  await cash.getByRole("button", { name: "Ver caja", exact: true }).click();
+  await cash.getByRole("button", { name: /^(Ver caja|Configurar mi caja)$/ }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("Importe (S/)", { exact: true }).fill("200");
   await returnToTab(page);
@@ -2021,8 +2021,8 @@ test('Inicio muestra gráficos globales históricos, detalle mensual y conserva 
  await mockSupabase(page,'jefe',{...fixtures,cash_summary:cashFixture()});
  await login(page);
  const charts=page.getByRole('region',{name:'Gráficos financieros de todo el historial'});
- await expect(charts).toContainText('Tu dinero, de un vistazo');
- await expect(charts).toContainText('Cómo ha crecido tu ganancia');
+ await expect(charts).toContainText('Recuperación de capital');
+ await expect(charts.getByRole('heading',{name:'Interés cobrado',exact:true})).toBeVisible();
  await charts.getByText('Ver detalle mensual',{exact:true}).click();
  const table=charts.getByRole('table',{name:'Detalle mensual histórico'});
  await expect(table).toBeVisible();await expect(table).toContainText('Capital devuelto');
@@ -2052,4 +2052,59 @@ test('icono del navegador conserva transparencia y cambia negro o blanco según 
   expect(pixels.transparent).toBeGreaterThan(1000);expect(pixels.opaque).toBeGreaterThan(100);
   if(scheme==='light')expect(pixels.max).toBeLessThan(5);else expect(pixels.min).toBeGreaterThan(250);
  }
+});
+
+test('nuevo Inicio conecta cada barra con la línea mensual, conserva descensos y permite acumulado',async({page})=>{
+ await page.setViewportSize({width:1440,height:1000});
+ const fixtures=await dashboardFixtures();
+ const {limaDate}=await import('../src/lib/portal');const today=limaDate();
+ const months=Array.from({length:4},(_,index)=>{const date=new Date(`${today.slice(0,7)}-01T00:00:00Z`);date.setUTCMonth(date.getUTCMonth()-3+index);return date.toISOString().slice(0,10);});
+ fixtures.payments=months.map((date,index)=>({...fixtures.payments[0],id:`monthly-${index}`,paid_on:date,interest_cents:[12000,24000,21500,12000][index],capital_cents:index===0?157000:0,amount_cents:[12000,24000,21500,12000][index]+(index===0?157000:0)}));
+ const calls=await mockSupabase(page,'jefe',{...fixtures,cash_summary:{...cashFixture(),interest_cents:'69500',received_cents:'226500',disbursed_cents:'400000',balance_cents:'326500'}});
+ await login(page);
+ await expect(page.locator('.home-summary')).toContainText('695.00');
+ await expect(page.locator('.home-capital-track')).toBeVisible();
+ const chart=page.getByRole('region',{name:'Gráficos financieros de todo el historial'});
+ await expect(chart.locator('.home-interest-bar')).toHaveCount(4);
+ const line=page.getByTestId('interest-trend-line');
+ const ys=()=>line.getAttribute('points').then(value=>value!.split(' ').map(p=>Number(p.split(',')[1])));
+ const monthly=await ys();expect(monthly).toHaveLength(4);expect(monthly[1]).toBeLessThan(monthly[0]);expect(monthly[2]).toBeGreaterThan(monthly[1]);expect(monthly[3]).toBeGreaterThan(monthly[2]);
+ const barY=await chart.locator('.home-interest-bar').evaluateAll(bars=>bars.map(bar=>Number(bar.getAttribute('y'))));expect(monthly).toEqual(barY);
+ await expect(chart).toContainText('Mes en curso');
+ await page.screenshot({path:'test-results/inicio-linea-escritorio.png',fullPage:true});
+ await chart.getByRole('button',{name:'Acumulado',exact:true}).click();
+ const cumulative=await ys();expect(cumulative[3]).toBeLessThan(cumulative[2]);expect(cumulative[2]).toBeLessThan(cumulative[1]);expect(cumulative[1]).toBeLessThan(cumulative[0]);
+ await chart.getByText('Ver detalle mensual',{exact:true}).click();await expect(chart.getByRole('table',{name:'Detalle mensual histórico'})).toContainText('695.00');
+ await chart.getByRole('button',{name:'Por mes',exact:true}).click();
+ await page.setViewportSize({width:375,height:1000});await page.emulateMedia({colorScheme:'dark'});
+ await page.evaluate(()=>{(document.activeElement as HTMLElement)?.blur();window.scrollTo(0,0);});
+ await page.screenshot({path:'test-results/inicio-linea-movil-noche.png',fullPage:true});
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+ expect(calls).toHaveLength(0);
+});
+
+test('nuevo Inicio ordena cierres próximos y permite abrir la cuenta o ir al panel',async({page})=>{
+ const fixtures=await dashboardFixtures();const {limaDate,addDays}=await import('../src/lib/portal');const today=limaDate();
+ const active=fixtures.loans.filter(l=>l.status==='activo');
+ for(const [index,loan] of active.entries()){const period=fixtures.loan_periods.find(p=>p.loan_id===loan.id&&p.is_current)!;period.end_date=addDays(today,[5,1,3][index]);}
+ await mockSupabase(page,'jefe',{...fixtures,cash_summary:cashFixture()});await login(page);
+ const upcoming=page.getByRole('region',{name:'Próximos vencimientos',exact:true});
+ const buttons=upcoming.locator('.home-upcoming-list button');await expect(buttons).toHaveCount(3);
+ await expect(buttons.first()).toContainText('Mañana');await expect(buttons.nth(1)).toContainText('En 3 días');await expect(buttons.nth(2)).toContainText('En 5 días');
+ await buttons.first().click();await expect(page.getByRole('dialog')).toBeVisible();await expect(page.getByRole('dialog').getByRole('button',{name:'Confirmar pago',exact:true})).toHaveCount(0);await page.keyboard.press('Escape');
+ await upcoming.getByRole('button',{name:'Ver panel',exact:true}).click();await expect(page.getByRole('heading',{name:'Panel general',exact:true,level:1})).toBeVisible();
+});
+
+
+test('el filtro anual conserva el acumulado anterior y la línea incluye meses sin cobros',async({page})=>{
+ const fixtures=await dashboardFixtures();const {limaDate}=await import('../src/lib/portal');const today=limaDate();const year=Number(today.slice(0,4));
+ fixtures.payments=[{...fixtures.payments[0],id:'past-year',paid_on:`${year-1}-12-01`,interest_cents:1000},{...fixtures.payments[0],id:'this-month',paid_on:today,interest_cents:2000}];
+ await mockSupabase(page,'jefe',{...fixtures,cash_summary:{...cashFixture(),interest_cents:'3000'}});await login(page);
+ const chart=page.getByRole('region',{name:'Gráficos financieros de todo el historial'});
+ await chart.getByRole('button',{name:'Acumulado',exact:true}).click();await chart.getByRole('combobox',{name:'Año del gráfico'}).selectOption(String(year));
+ await chart.getByText('Ver detalle mensual',{exact:true}).click();const table=chart.getByRole('table',{name:'Detalle mensual histórico'});
+ const rows=table.getByRole('row');expect(await rows.count()).toBe(Number(today.slice(5,7))+1);
+ if(today.slice(5,7)!=='01'){await expect(rows.nth(1)).toContainText('0.00');await expect(rows.nth(1)).toContainText('10.00');}
+ await expect(rows.last()).toContainText('30.00');
+ const line=page.getByTestId('interest-trend-line');expect((await line.getAttribute('points'))!.split(' ')).toHaveLength(Number(today.slice(5,7)));
 });
