@@ -1,5 +1,7 @@
 # Auditoría RLS de PM Créditos
 
+> Actualización: ya se contrastó el inventario proporcionado por el responsable. Véase [Validación del catálogo publicado](VALIDACION-RLS-PRODUCCION.md). El resto de este documento conserva el alcance y hallazgos de la fase local inicial.
+
 **Resultado:** no se reprodujeron accesos indebidos ni elevación de privilegios en el modelo local construido con las migraciones 001–010. Hay una recomendación de endurecimiento dependiente de configuración y verificaciones pendientes en producción. Este resultado no certifica la configuración instalada en el Supabase publicado.
 
 Base revisada: commit `935e981`, las diez migraciones de `supabase/migrations`, llamadas del frontend y configuración pública del cliente Supabase. La aplicación maneja una cartera compartida entre trabajadores autorizados, no un sistema de cuentas de prestatarios ni organizaciones independientes. Que un administrador o `jefe` lea todos los clientes es el comportamiento autorizado actual.
