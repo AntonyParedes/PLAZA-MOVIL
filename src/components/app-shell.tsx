@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState, type ReactNode } from "react";
+import Image from "next/image";
 import { Dialog, DropdownMenu } from "radix-ui";
 import {
-  Landmark,
   LayoutDashboard,
   TableProperties,
   Users,
@@ -41,12 +41,12 @@ const navigation = [
 export function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className="brand flex items-center gap-3">
-      <span className="brand-mark flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-[#102b18]">
-        <Landmark size={22} aria-hidden="true" />
+      <span className={cn("brand-logo shrink-0", compact && "brand-logo-compact")}>
+        <Image src="/brand/plaza-movil-logo.png" alt="Plaza Móvil" width={116} height={56} style={{ height: "auto" }} priority />
       </span>
       {!compact && (
         <div>
-          <p className="brand-name text-lg font-semibold tracking-tight">PM Créditos</p>
+          <p className="brand-name text-lg font-semibold tracking-tight">Rapi Créditos</p>
           <p className="brand-subtitle mt-0.5 text-[11px]">
             Gestión financiera
           </p>
@@ -184,7 +184,7 @@ export default function AppShell({
                 <Dialog.Content className="app-navigation mobile-navigation fixed inset-y-0 left-0 z-50 flex w-[min(296px,85vw)] flex-col overflow-y-auto lg:hidden">
                   <Dialog.Title className="sr-only">Navegación</Dialog.Title>
                   <Dialog.Description className="sr-only">
-                    Selecciona un módulo de PM Créditos.
+                    Selecciona un módulo de Rapi Créditos.
                   </Dialog.Description>
                   <Dialog.Close asChild>
                     <button
@@ -284,7 +284,7 @@ export default function AppShell({
           {children}
         </main>
         <footer className="workspace-footer px-6 pb-6 text-xs text-slate-500">
-          PM Créditos · Montos en soles · Hora de Lima
+          Rapi Créditos · Montos en soles · Hora de Lima
         </footer>
       </div>
     </div>

@@ -1,4 +1,4 @@
-# PM Créditos
+# Rapi Créditos
 
 Base de desarrollo de una aplicación de préstamos personales en PEN y zona America/Lima. Next.js App Router, TypeScript, Tailwind, componente Button compatible con shadcn/ui, Supabase y Zod. Se usan consultas Supabase y migraciones SQL, sin Prisma.
 
@@ -157,3 +157,7 @@ La penalidad se almacena por separado de `amount_cents` (capital + interés apli
 Rediseño compartido de los seis módulos, acceso, caja, clientes, tablas y paneles de detalle siguiendo [apple-design de Emil Kowalski](https://github.com/emilkowalski/skills/blob/main/skills/apple-design/SKILL.md). Se mantienen los colores de Plaza Móvil; mejora la jerarquía de importes y estados, tipografía de sistema, navegación día/noche, materiales suaves, formularios de 16 px y respuesta al presionar. Incluye adaptaciones para movimiento reducido, contraste alto y transparencia reducida. Ver [criterios de diseño y validación](docs/DISENO-APPLE.md).
 
 Este cambio visual **no requiere SQL nuevo**. Publicar el nuevo commit desde Vercel; las funciones financieras siguen usando las migraciones ya instaladas. Las capturas y recorridos de revisión usan datos simulados, sin acceder a cuentas de producción.
+
+### Rapi Créditos: flujos orientados a la persona
+
+El aplicativo usa el nombre Rapi Créditos y la identidad de Plaza Móvil. Nuevo préstamo comienza por elegir al cliente, continúa con condiciones y termina con una revisión completa. Desde la ficha se accede directamente a prestar o cobrar. Cobros y caja muestran el resultado previsto, y abrir otra cuenta limpia el importe anterior sin alterar la sincronización de la cuenta abierta. Ver [revisión de los flujos](docs/FLUJOS-USO.md). No requiere SQL adicional.

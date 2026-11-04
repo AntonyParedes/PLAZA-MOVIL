@@ -66,7 +66,7 @@ export function clientWhatsApp(
 ) {
   const account = clientAccount(client.id, data, today);
   const lines = [
-    `Hola ${client.full_name}, te contactamos de PM Créditos.`,
+    `Hola ${client.full_name}, te contactamos de Rapi Créditos.`,
     "",
     `Estado: ${account.state === "Atrasado" ? `Se atrasó ${account.daysLate} días` : account.state}`,
     `Saldo total: ${formatPEN(account.balance)}`,
@@ -110,6 +110,6 @@ export function clientWhatsApp(
       "",
       "Tu préstamo ha sido liquidado en su totalidad. Gracias por tus pagos.",
     );
-  lines.push("", "Atentamente,", "La Gerencia", "PM Créditos");
+  lines.push("", "Atentamente,", "La Gerencia", "Rapi Créditos");
   return lines.join("\n");
 }

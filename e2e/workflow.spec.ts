@@ -141,7 +141,7 @@ for (const [productId, capital, interest, quota] of [
       .getByRole("button", { name: "Préstamos", exact: true })
       .click();
     await page.getByRole("button", { name: "Préstamos", exact: true }).click();
-    await page.getByRole("button", { name: "Nuevo préstamo" }).click();
+    await openNewLoan(page);
     await page.getByLabel("Monto del préstamo (S/)", { exact: true }).fill(String(capital / 100));
     await page.getByLabel("Plazo del préstamo", { exact: true }).selectOption("2");
     await page.getByLabel("Fecha del préstamo").fill("2026-10-09");
@@ -919,7 +919,7 @@ test("recordatorio WhatsApp prepara estado, días de mora, advertencia y firma s
   expect(text).toContain(
     "El atraso puede generar penalidades según las condiciones de tu préstamo.",
   );
-  expect(text).toContain("Atentamente,\nLa Gerencia\nPM Créditos");
+  expect(text).toContain("Atentamente,\nLa Gerencia\nRapi Créditos");
   expect(calls).toHaveLength(0);
 });
 
@@ -995,7 +995,13 @@ test("Excel completo se descarga, abre como XLSX y conserva datos, cuotas y pago
   expect(book.getWorksheet("Cartera")!.rowCount).toBe(5);
   expect(book.getWorksheet("Cartera")!.getCell("F2").value).toBe("Ana Socia");
   expect(book.getWorksheet("Pagos")!.rowCount).toBe(2);
-  expect(book.getWorksheet("Cuotas")!.rowCount).toBe(5);
+  expect(book.worksheets.map(sheet=>sheet.name)).toEqual(["Cartera","Pagos","Penalidades","Refinanciaciones","Cobros por mes","Resumen financiero","Guía"]);
+  const summary=book.getWorksheet("Resumen financiero")!;
+  const summaryValue=(label:string)=>summary.getRows(2,summary.rowCount-1)!.find(row=>row.getCell(1).value===label)?.getCell(2).value;
+  expect(summaryValue("DINERO DISPONIBLE EN CAJA")).toBeNull();
+  const firstHeaders=book.getWorksheet("Cartera")!.getRow(1).values as string[];
+  expect(firstHeaders).not.toContain("CAPITAL PENDIENTE");
+  expect(firstHeaders).not.toContain("PENALIDAD COBRADA");
   await page
     .getByRole("combobox", { name: "Filtrar condición" })
     .selectOption("trabajador");
@@ -1007,6 +1013,8 @@ test("Excel completo se descarga, abre como XLSX y conserva datos, cuotas y pago
   const other = new ExcelJS.Workbook();
   await other.xlsx.readFile((await filtered.path())!);
   expect(other.getWorksheet("Cartera")!.rowCount).toBe(2);
+  const metric=(sheet:import("exceljs").Worksheet,label:string)=>sheet.getRows(2,sheet.rowCount-1)!.find(row=>row.getCell(1).value===label)?.getCell(2).value;
+  expect(metric(other.getWorksheet("Resumen financiero")!,"Saldo total por cobrar")).toBe(summaryValue("Saldo total por cobrar"));
   expect(other.getWorksheet("Cartera")!.getCell("F2").value).toBe(
     "Luis Trabajador",
   );
@@ -1275,7 +1283,7 @@ for (const width of [375, 1440]) {
     await navigateModule(page, "Préstamos");
     await expect(page.getByRole("table", { name: "Panel general de préstamos" })).toBeVisible();
     await expect(page.getByRole("table", { name: "Cartera de préstamos", exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "Nuevo préstamo", exact: true }).click();
+    await openNewLoan(page);
     await expect(page.getByLabel("Monto del préstamo (S/)", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Cancelar", exact: true }).click();
     await navigateModule(page, "Configuración");
@@ -1399,7 +1407,7 @@ for (const [amount, months, rate, interest, quota] of [[250,1,700,17.5,66.88],[5
     const calls = await mockSupabase(page, "administrador");
     await login(page);
     await navigateModule(page, "Préstamos");
-    await page.getByRole("button", { name: "Nuevo préstamo", exact: true }).click();
+    await openNewLoan(page);
     await page.getByLabel("Monto del préstamo (S/)", { exact: true }).fill(String(amount));
     await page.getByLabel("Plazo del préstamo", { exact: true }).selectOption(String(months));
     await expect(page.getByText("Tasa mensual:")).toContainText(`${rate/100} %`);
@@ -1418,7 +1426,7 @@ test("monto o plazo nuevo invalida el cronograma antes de desembolsar", async ({
   const calls = await mockSupabase(page, "administrador");
   await login(page);
   await navigateModule(page, "Préstamos");
-  await page.getByRole("button", { name: "Nuevo préstamo", exact: true }).click();
+  await openNewLoan(page);
   const amount = page.getByLabel("Monto del préstamo (S/)", { exact: true });
   await amount.fill("1500");
   await page.getByRole("button", { name: "Revisar cronograma" }).click();
@@ -1870,4 +1878,130 @@ test('apple-design conserva accesibilidad con movimiento reducido, contraste alt
  await navigateModule(page,'Clientes');
  const search=page.getByRole('searchbox');
  expect(await search.evaluate(el=>parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16);
+});
+
+
+async function openNewLoan(page: Page) {
+ await page.getByRole("button", { name: "Nuevo préstamo", exact: true }).click();
+ const picker=page.locator('select[name="client"]');
+ const id=await picker.locator('option:not([disabled])').evaluateAll(options=>(options as HTMLOptionElement[]).find(option=>option.value)?.value??"");
+ if(id)await picker.selectOption(id);
+}
+
+test('flujo préstamo empieza por la persona y cambiarla invalida la revisión',async({page})=>{
+ const fixtures=await dashboardFixtures();
+ fixtures.clients.push({...fixtures.clients[2],id:'new-borrower',full_name:'Elena Nueva',dni:'44556677',stand_code:'E-10'});
+ const calls=await mockSupabase(page,'administrador',fixtures);
+ await login(page);await navigateModule(page,'Préstamos');
+ await page.getByRole('button',{name:'Nuevo préstamo',exact:true}).click();
+ const picker=page.locator('select[name="client"]');
+ const amount=page.getByLabel('Monto del préstamo (S/)',{exact:true});
+ await expect(picker).toHaveValue('');await expect(amount).toBeDisabled();
+ await expect(page.getByRole('button',{name:'Revisar cronograma',exact:true})).toBeDisabled();
+ expect(await picker.evaluate(el=>Boolean(el.compareDocumentPosition(document.querySelector('input[placeholder="Ej. 1500.00"]')!)&Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+ await picker.selectOption('client-2');await amount.fill('500');
+ await page.getByRole('button',{name:'Revisar cronograma',exact:true}).click();
+ let review=page.getByRole('region',{name:'Revisión del préstamo',exact:true});
+ await expect(review).toContainText('Maria Liquidada');await expect(review).toContainText('12345672');
+ await picker.selectOption('new-borrower');
+ await expect(page.getByRole('button',{name:'Confirmar desembolso',exact:true})).toHaveCount(0);
+ await page.getByRole('button',{name:'Revisar cronograma',exact:true}).click();
+ review=page.getByRole('region',{name:'Revisión del préstamo',exact:true});
+ await expect(review).toContainText('Elena Nueva');await expect(review).toContainText('44556677');
+ page.once('dialog',d=>d.dismiss());await page.getByRole('button',{name:'Confirmar desembolso',exact:true}).click();
+ expect(calls.some(c=>c.name==='create_loan')).toBe(false);
+});
+
+test('flujo búsqueda de prestatario explica cuentas bloqueadas y permite ir a Clientes',async({page})=>{
+ await mockSupabase(page,'administrador',await dashboardFixtures());await login(page);await navigateModule(page,'Préstamos');
+ await page.getByRole('button',{name:'Nuevo préstamo',exact:true}).click();
+ await page.getByLabel('Buscar prestatario',{exact:true}).fill('12345670');
+ const option=page.locator('select[name="client"] option[value="client-0"]');
+ await expect(option).toHaveAttribute("disabled", "");await expect(option).toContainText('Ya tiene préstamo activo');
+ await page.getByRole('button',{name:'Ir a Clientes',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Clientes',level:1,exact:true})).toBeVisible();
+});
+
+test('flujo desde Clientes abre un préstamo con la persona ya elegida',async({page})=>{
+ await page.setViewportSize({width:375,height:900});
+ await mockSupabase(page,'administrador',await dashboardFixtures());await login(page);await navigateModule(page,'Clientes');
+ const maria=page.getByRole('article',{name:'Maria Liquidada',exact:true});
+ await maria.getByRole('button',{name:/^Maria Liquidada/}).click();
+ await maria.getByRole('button',{name:'Nuevo préstamo',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Préstamos',level:1,exact:true})).toBeVisible();
+ await expect(page.locator('select[name="client"]')).toHaveValue('client-2');
+ await expect(page.getByLabel('Monto del préstamo (S/)',{exact:true})).toBeEnabled();
+ await page.getByLabel('Monto del préstamo (S/)',{exact:true}).fill('1500');
+ await page.getByRole('button',{name:'Revisar cronograma',exact:true}).click();
+ await expect(page.getByRole('region',{name:'Revisión del préstamo',exact:true})).toContainText('Maria Liquidada');
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+ await page.evaluate(()=>{(document.activeElement as HTMLElement)?.blur();window.scrollTo(0,0);});
+ await page.screenshot({path:'test-results/rapi-persona-primero-movil.png',fullPage:true});
+});
+
+test('flujo cobrar desde Clientes muestra distribución y no arrastra importes entre personas',async({page})=>{
+ await mockSupabase(page,'administrador',await dashboardFixtures());await login(page);await navigateModule(page,'Clientes');
+ const ana=page.getByRole('article',{name:'Ana Socia',exact:true});await ana.getByRole('button',{name:/^Ana Socia/}).click();
+ await ana.getByRole('button',{name:'Registrar pago',exact:true}).click();
+ let detail=page.getByRole('dialog');await expect(detail).toContainText('Ana Socia');
+ const amount=detail.getByLabel('Monto (S/)',{exact:true});await amount.fill('50');
+ const preview=detail.locator('[aria-label="Distribución estimada del pago"]');
+ await expect(preview).toContainText('S/ 50.00');await expect(preview).toContainText('S/ 820.00');
+ await page.keyboard.press('Escape');
+ await page.getByRole('button',{name:'Ver detalle de Luis Trabajador',exact:true}).click();
+ detail=page.getByRole('dialog');await expect(detail.getByLabel('Monto (S/)',{exact:true})).toHaveValue('');
+});
+
+test('flujo caja anticipa aporte y retiro sin registrarlos antes de confirmar',async({page})=>{
+ const calls=await mockSupabase(page,'administrador',{...await dashboardFixtures(),cash_summary:cashFixture()});await login(page);
+ await page.getByRole('button',{name:'Ver caja',exact:true}).click();const detail=page.getByRole('dialog');
+ await detail.getByLabel('Importe (S/)',{exact:true}).fill('100');
+ await expect(detail.locator('[aria-label="Resultado previsto de caja"]')).toContainText('S/ 4,350.00');
+ await detail.getByLabel('Tipo de movimiento').selectOption('retiro');
+ await expect(detail.locator('[aria-label="Resultado previsto de caja"]')).toContainText('S/ 4,150.00');
+ expect(calls.some(c=>c.name==='record_cash_movement')).toBe(false);
+});
+
+test('flujo revisión se bloquea si otro administrador crea una deuda para esa persona',async({page})=>{
+ const fixtures=await dashboardFixtures();const calls=await mockSupabase(page,'administrador',fixtures);
+ await login(page);await navigateModule(page,'Préstamos');await openNewLoan(page);
+ await page.getByLabel('Monto del préstamo (S/)',{exact:true}).fill('500');await page.getByRole('button',{name:'Revisar cronograma',exact:true}).click();
+ const confirm=page.getByRole('button',{name:'Confirmar desembolso',exact:true});await expect(confirm).toBeEnabled();
+ fixtures.loans[2].status='activo';fixtures.loans[2].capital_pending=50000;
+ await returnToTab(page);await expect(confirm).toBeDisabled();
+ await expect(page.getByRole('region',{name:'Revisión del préstamo',exact:true})).toContainText('dejó de estar disponible');
+ expect(calls.some(c=>c.name==='create_loan')).toBe(false);
+});
+
+test('marca Rapi Créditos aparece en pestaña, acceso y menú con logo legible',async({page})=>{
+ await mockSupabase(page,'administrador');await page.goto('/');await expect(page).toHaveTitle('Rapi Créditos');
+ await expect(page.getByText('Bienvenido a Rapi Créditos',{exact:true})).toBeVisible();
+ const logo=page.getByRole('img',{name:'Plaza Móvil',exact:true});await expect(logo).toBeVisible();
+ await expect.poll(()=>logo.evaluate((img:HTMLImageElement)=>img.complete&&img.naturalWidth>0)).toBe(true);
+ await login(page);await expect(page.locator('.brand-name').filter({visible:true})).toContainText('Rapi Créditos');
+});
+
+
+test("Excel consulta caja global con perfil de lectura y conserva movimientos", async ({page}) => {
+ const fixtures={...await dashboardFixtures(),cash_summary:cashFixture(),cash_movements:[{id:"cash-opening",kind:"apertura",amount_cents:500000,note:"Inicio de caja",created_at:"2026-10-01T15:00:00Z"}]};
+ const calls=await mockSupabase(page,"jefe",fixtures);
+ await login(page);await navigateModule(page,"Reportes");
+ const downloaded=page.waitForEvent("download");
+ await page.getByRole("button",{name:"Panel de cobranza Excel",exact:true}).click();
+ const {default:ExcelJS}=await import("exceljs");const book=new ExcelJS.Workbook();
+ await book.xlsx.readFile((await (await downloaded).path())!);
+ const summary=book.getWorksheet("Resumen financiero")!;
+ const rows=summary.getRows(1,summary.rowCount)!;
+ expect(rows.find(row=>row.getCell(1).value==="DINERO DISPONIBLE EN CAJA")!.getCell(2).value).toBe(4250);
+ expect(rows.find(row=>row.getCell(6).value==="cash-opening")!.getCell(3).value).toBe(5000);
+ expect(calls).toHaveLength(0);
+});
+test("Excel avisa si falla la consulta de caja y evita una descarga incompleta", async ({page}) => {
+ await mockSupabase(page,"administrador",await dashboardFixtures());
+ await page.route("**/rest/v1/cash_movements*",route=>route.request().method()==="OPTIONS"?route.fallback():route.fulfill({status:500,contentType:"application/json",headers:{"access-control-allow-origin":"*"},body:JSON.stringify({message:"Sin conexión"})}));
+ await login(page);await navigateModule(page,"Reportes");
+ let downloads=0;page.on("download",()=>downloads++);
+ await page.getByRole("button",{name:"Panel de cobranza Excel",exact:true}).click();
+ await expect(page.getByText("No se pudieron consultar los movimientos de caja. Vuelve a exportar.",{exact:true})).toBeVisible();
+ expect(downloads).toBe(0);
 });

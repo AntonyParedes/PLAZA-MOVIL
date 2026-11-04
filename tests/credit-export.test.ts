@@ -94,14 +94,11 @@ test("Excel real conserva identificación, ocho cuotas, números, fechas y hojas
     opened.worksheets.map((s) => s.name),
     [
       "Cartera",
-      "Cuotas",
       "Pagos",
       "Penalidades",
-      "Periodos",
       "Refinanciaciones",
-      "Clientes",
-      "Cobros por semana",
       "Cobros por mes",
+      "Resumen financiero",
       "Guía",
     ],
   );
@@ -127,7 +124,6 @@ test("Excel real conserva identificación, ocho cuotas, números, fechas y hojas
     (value("FECHA") as Date).toISOString().slice(0, 10),
     "2026-08-14",
   );
-  assert.equal(opened.getWorksheet("Cuotas")!.rowCount, 9);
   assert.equal(opened.getWorksheet("Pagos")!.getCell("F2").value, 360);
   assert.ok(sheet.views[0].state === "frozen");
   assert.ok(sheet.autoFilter);
@@ -135,10 +131,9 @@ test("Excel real conserva identificación, ocho cuotas, números, fechas y hojas
     sheet.getRow(2).getCell(column(sheet, "CUOTA 1")).fill.type,
     "pattern",
   );
-  assert.equal(
-    opened.getWorksheet("Clientes")!.getCell("G2").value,
-    "Observación completa",
-  );
+  const headers = sheet.getRow(1).values as string[];
+  for (const removed of ["FECHA PRÓXIMA CUOTA","DÍAS DE ATRASO","REFINANCIADO","PERIODO VIGENTE","TASA MENSUAL (%)","INTERÉS GENERADO","TOTAL PAGADO","CAPITAL PENDIENTE","INTERÉS PENDIENTE","ID PRÉSTAMO","PENALIDAD COBRADA"]) assert.ok(!headers.includes(removed), removed);
+
 });
 test("refinanciación conserva históricos sin sumar otra vez capital y selección respeta préstamos", async () => {
   const refi: CreditExportData = {
@@ -181,13 +176,7 @@ test("refinanciación conserva históricos sin sumar otra vez capital y selecci�
     1180,
   );
   assert.equal(sheet.getRow(2).getCell(column(sheet, "SALDO")).value, 820);
-  assert.equal(
-    sheet.getRow(2).getCell(column(sheet, "REFINANCIADO")).value,
-    "Sí",
-  );
   assert.equal(book.getWorksheet("Refinanciaciones")!.rowCount, 2);
-  assert.equal(book.getWorksheet("Periodos")!.rowCount, 3);
-  assert.equal(book.getWorksheet("Cuotas")!.rowCount, 13);
   assert.equal(sheet.getRow(2).getCell(column(sheet, "CUOTA 1")).value, 0);
   assert.equal(sheet.getRow(2).getCell(column(sheet, "CUOTA 5")).value, null);
   const empty = await buildCreditWorkbook({ ...data, selectedLoanIds: [] });
@@ -218,12 +207,39 @@ test("Excel separa penalidad cobrada de capital e interés y la incluye una sola
  assert.equal(register.rowCount,2);assert.equal(register.getRow(2).getCell(column(register,'PENALIDAD COBRADA')).value,50);
  const pagos=book.getWorksheet('Pagos')!;
  for(const [name,expected] of [['TOTAL PAGADO',1170],['INTERÉS',120],['CAPITAL',1000],['PENALIDAD',50],['MOTIVO DE PENALIDAD','Plazo vencido']] as const) assert.equal(pagos.getRow(2).getCell(column(pagos,name)).value,expected,name);
- const cartera=book.getWorksheet('Cartera')!;
- assert.equal(cartera.getRow(2).getCell(column(cartera,'PENALIDAD COBRADA')).value,50);
- assert.equal(cartera.getRow(2).getCell(column(cartera,'TOTAL PAGADO')).value,1170);
- for(const name of ['Cobros por semana','Cobros por mes']) {
+ for(const name of ['Cobros por mes']) {
   const sheet=book.getWorksheet(name)!;
   assert.equal(sheet.getRow(2).getCell(column(sheet,'PENALIDAD COBRADA')).value,50);
   assert.equal(sheet.getRow(2).getCell(column(sheet,'TOTAL COBRADO')).value,1170);
  }
+});
+
+function metric(sheet: import("exceljs").Worksheet, title: string) {
+  const row = sheet.getRows(2, sheet.rowCount - 1)!.find(row => row.getCell(1).value === title);
+  assert.ok(row, title);
+  return row.getCell(2).value;
+}
+test("resumen financiero global concilia caja, préstamos e ingresos aunque Cartera esté filtrada", async () => {
+  const input: CreditExportData = {
+    ...data,
+    loans:[...data.loans,{...data.loans[0],id:"second",original_capital:50000,capital_pending:40000,interest_pending:3500}],
+    selectedLoanIds:[],
+    cashSummary:{configured:true,opening_cents:"200000",contributions_cents:"10000",withdrawals_cents:"5000",received_cents:"41000",disbursed_cents:"150000",penalty_cents:"5000",interest_cents:"12000",month_interest_cents:"0",balance_cents:"96000",as_of:data.today},
+    cashMovements:[{id:"opening",kind:"apertura",amount_cents:200000,note:"Capital inicial",created_at:"2026-08-01T02:00:00Z"},{id:"out",kind:"retiro",amount_cents:5000,note:"Retiro registrado",created_at:"2026-09-01T15:00:00Z"}],
+  };
+  const book=await buildCreditWorkbook(input);
+  assert.equal(book.getWorksheet("Cartera")!.rowCount,1);
+  const summary=book.getWorksheet("Resumen financiero")!;
+  for(const [title,value] of [["Capital pendiente en préstamos",1160],["Interés pendiente de cobro",35],["Saldo total por cobrar",1195],["Capital desembolsado acumulado",1500],["Interés cobrado (ganancia)",120],["Penalidades cobradas",50],["DINERO DISPONIBLE EN CAJA",960]] as const) assert.equal(metric(summary,title),value,title);
+  const rows=summary.getRows(1,summary.rowCount)!;
+  assert.equal(rows.filter(row=>row.getCell(2).value==="Cliente Completo").length,2);
+  const movement=rows.find(row=>row.getCell(6).value==="opening")!;
+  assert.equal((movement.getCell(1).value as Date).toISOString().slice(0,10),"2026-07-31");
+  assert.equal(movement.getCell(3).value,2000);
+  assert.equal(movement.getCell(4).value,null);
+  assert.equal(summary.autoFilter,undefined);
+});
+test("caja sin configurar no se exporta como saldo cero", async () => {
+ const book=await buildCreditWorkbook({...data,cashSummary:{configured:false,opening_cents:"0",contributions_cents:"0",withdrawals_cents:"0",received_cents:"36000",disbursed_cents:"100000",penalty_cents:"0",interest_cents:"12000",month_interest_cents:"0",balance_cents:null,as_of:data.today}});
+ assert.equal(metric(book.getWorksheet("Resumen financiero")!,"DINERO DISPONIBLE EN CAJA"),null);
 });

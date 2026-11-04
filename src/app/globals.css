@@ -620,3 +620,18 @@ button, a, summary { scroll-margin-block: 6rem; }
   .pm-button:active, .nav-item:active, .detail-sheet, .mobile-navigation, .account-popover { transform: none !important; animation: none !important; }
   .modal-scrim { animation: none !important; }
 }
+
+/* Task order stays visible without adding extra screens. */
+.workflow-steps { display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 0; margin: 0; list-style: none; }
+.workflow-steps li { display: flex; align-items: center; gap: 0.5rem; color: var(--neutral-500); font-size: 0.8rem; padding: 0.5rem 0.75rem; border-radius: 0.75rem; }
+.workflow-steps li > span { display: grid; place-items: center; min-width: 1.5rem; min-height: 1.5rem; border-radius: 50%; background: var(--neutral-100); font-variant-numeric: tabular-nums; }
+.workflow-steps li[aria-current="step"] { color: var(--brand-text); background: var(--brand-soft); font-weight: 600; }
+.workflow-steps li[aria-current="step"] > span { background: var(--brand-border); }
+fieldset:disabled { opacity: 0.65; }
+input:disabled, select:disabled, textarea:disabled { cursor: not-allowed; }
+.workflow-person { overflow-wrap: anywhere; }
+
+.brand-logo { display: grid; place-items: center; width: 6.25rem; height: 3.25rem; padding: 0.25rem; border-radius: 0.5rem; background: #211827; }
+.brand-logo img { display: block; width: 100%; height: auto; max-height: 100%; object-fit: contain; }
+.brand-logo-compact { width: 2.75rem; height: 2.5rem; padding: 0.15rem; }
+.brand-name { line-height: 1.15; }

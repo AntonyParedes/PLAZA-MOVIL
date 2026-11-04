@@ -62,7 +62,7 @@ test("recordatorio identifica cuota, saldo, fecha, estado y firma, sin atraso an
     assert.match(text, /Estado de la cuota: Pendiente/);
     assert.match(text, /Días de atraso de esta cuota: 0 días/);
     assert.doesNotMatch(text, /penalidades|En mora/);
-    assert.ok(text.endsWith("Atentamente,\nLa Gerencia\nPM Créditos"));
+    assert.ok(text.endsWith("Atentamente,\nLa Gerencia\nRapi Créditos"));
   }
 });
 test("uno y seis días muestran atraso; siete días muestran mora sin imponer una multa o plazo", () => {

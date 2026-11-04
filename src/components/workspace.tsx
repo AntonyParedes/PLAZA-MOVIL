@@ -66,6 +66,7 @@ export default function Workspace() {
   const [editing, setEditing] = useState<Client | null>(null);
   const [deleting, setDeleting] = useState<Client | null>(null);
   const [clientRevision, setClientRevision] = useState(0);
+  const [financeIntent, setFinanceIntent] = useState<{borrowerId?:string;loanId?:string}>({});
   useEffect(() => {
     if (!supabase) return;
     let active = true;
@@ -83,6 +84,7 @@ export default function Workspace() {
         setShowForm(false);
         setEditing(null);
         setDeleting(null);
+        setFinanceIntent({});
         setSearch("");
         setMemberFilter("todos");
         setSection("dashboard");
@@ -231,6 +233,7 @@ export default function Workspace() {
       (memberFilter === "todos" || client.member_type === memberFilter),
   );
   function navigate(next: Section) {
+    setFinanceIntent({});
     setDeleting(null);
     setSection(next);
   }
@@ -282,7 +285,7 @@ export default function Workspace() {
             </div>
           </div>
           <p className="text-xs text-slate-400">
-            PM Créditos · Soles peruanos · Lima
+            Rapi Créditos · Soles peruanos · Lima
           </p>
         </aside>
         <main className="login-access flex items-center justify-center p-6 sm:p-12">
@@ -315,7 +318,7 @@ export default function Workspace() {
               <>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-widest text-blue-600">
-                    Bienvenido a PM Créditos
+                    Bienvenido a Rapi Créditos
                   </p>
                   <h2 className="mt-3 text-3xl font-semibold tracking-tight">
                     Iniciar sesión
@@ -374,7 +377,7 @@ export default function Workspace() {
           <Card>
             <SectionHeading
               title="Tu espacio de trabajo"
-              description="Preferencias de operación de PM Créditos."
+              description="Preferencias de operación de Rapi Créditos."
             />
             <div className="mb-5">
               <ThemePreference />
@@ -431,6 +434,9 @@ export default function Workspace() {
                   ? "general"
                   : section
             }
+            initialBorrowerId={financeIntent.borrowerId}
+            initialLoanId={financeIntent.loanId}
+            onClients={query => { setSearch(query ?? ""); setMemberFilter("todos"); navigate("clientes"); }}
             search={search}
             onSearchChange={setSearch}
           />
@@ -455,7 +461,7 @@ export default function Workspace() {
           />
           <Card className="!p-4">
             <div className="grid items-end gap-4 sm:grid-cols-[1fr_220px]">
-              <ClientSearch value={search} onChange={setSearch} label="Buscar cliente" accessibleLabel="Buscar por nombre o DNI" />
+              <ClientSearch value={search} onChange={setSearch} label="Buscar cliente" accessibleLabel="Buscar por nombre, DNI o stand" />
               <label>
                 Condición
                 <select
@@ -478,6 +484,8 @@ export default function Workspace() {
             clients={visible}
             role={role}
             onDelete={setDeleting}
+            onNewLoan={id => { setFinanceIntent({borrowerId:id}); setSearch(""); setSection("prestamos"); }}
+            onOpenLoan={id => { setFinanceIntent({loanId:id}); setSearch(""); setSection("general"); }}
             onEdit={(client) => {
               setEditing(client);
               setShowForm(true);
@@ -505,6 +513,27 @@ export default function Workspace() {
                   Identificación
                 </legend>
                 <label>
+                  Nombres y apellidos
+                  <input
+                    name="full_name"
+                    defaultValue={editing?.full_name ?? ""}
+                    required
+                    minLength={3}
+                    maxLength={150}
+                  />
+                </label>
+                <label>
+                  DNI
+                  <input
+                    name="dni"
+                    defaultValue={editing?.dni ?? ""}
+                    required
+                    inputMode="numeric"
+                    pattern="[0-9]{8}"
+                    maxLength={8}
+                  />
+                </label>
+                <label>
                   Código de stand
                   <input
                     name="stand_code"
@@ -525,27 +554,6 @@ export default function Workspace() {
                     <option value="socio">Socio</option>
                     <option value="trabajador">Trabajador</option>
                   </select>
-                </label>
-                <label>
-                  Nombres y apellidos
-                  <input
-                    name="full_name"
-                    defaultValue={editing?.full_name ?? ""}
-                    required
-                    minLength={3}
-                    maxLength={150}
-                  />
-                </label>
-                <label>
-                  DNI
-                  <input
-                    name="dni"
-                    defaultValue={editing?.dni ?? ""}
-                    required
-                    inputMode="numeric"
-                    pattern="[0-9]{8}"
-                    maxLength={8}
-                  />
                 </label>
               </fieldset>
               <fieldset className="grid gap-5 sm:grid-cols-2">

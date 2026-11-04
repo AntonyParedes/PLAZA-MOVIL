@@ -23,11 +23,15 @@ export default function ClientDirectory({
   role,
   onEdit,
   onDelete,
+  onNewLoan,
+  onOpenLoan,
 }: {
   clients: DirectoryClient[];
   role: "administrador" | "jefe";
   onEdit: (client: DirectoryClient) => void;
   onDelete: (client: DirectoryClient) => void;
+  onNewLoan: (id: string) => void;
+  onOpenLoan: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [data, setData] = useState<AccountData>({
@@ -115,6 +119,7 @@ export default function ClientDirectory({
       {clients.map((client) => {
         const account = clientAccount(client.id, data, today);
         const open = expanded === client.id;
+        const activeEntry = account.entries.find(entry => entry.loan.status === "activo");
         const tone = ["En mora", "Liquidación urgente"].includes(account.state)
           ? "danger"
           : account.state === "Atrasado"
@@ -238,14 +243,15 @@ export default function ClientDirectory({
                       </div>
                     )}
                   </div>
-                  {role === "administrador" && (
-                    <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    {ready && activeEntry && <Button onClick={() => onOpenLoan(activeEntry.loan.id)}>{role === "administrador" ? "Registrar pago" : "Ver préstamo"}</Button>}
+                    {ready && !activeEntry && role === "administrador" && client.stand_code && client.member_type && <Button onClick={() => onNewLoan(client.id)}>Nuevo préstamo</Button>}
+                    {role === "administrador" && <>
                     <Button variant="outline" onClick={() => onEdit(client)}>
                       <Pencil size={15} /> Editar
                     </Button>
-                    <Button variant="outline" className="text-[var(--danger-text)]" onClick={() => onDelete(client)} aria-label={`Eliminar cliente ${client.full_name}`}><Trash2 size={15} /> Eliminar cliente</Button>
-                    </div>
-                  )}
+                    </>}
+                  </div>
                 </div>
                 {ready ? (
                   <>
@@ -437,6 +443,7 @@ export default function ClientDirectory({
                     </div>
                   )}
                 </dl>
+                {role === "administrador" && <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4"><p className="text-xs text-slate-500">Eliminar está reservado para registros creados por error y requiere confirmar el DNI.</p><Button variant="outline" className="text-[var(--danger-text)]" onClick={() => onDelete(client)} aria-label={`Eliminar cliente ${client.full_name}`}><Trash2 size={15} /> Eliminar cliente</Button></div>}
               </div>
             )}
           </article>

@@ -109,6 +109,15 @@ export default function CashOverview({ role }: { role: "administrador" | "jefe" 
     } finally { lock.current = false; setBusy(false); }
   }
   const negative = summary?.balance_cents !== null && summary?.balance_cents !== undefined && BigInt(summary.balance_cents) < 0n;
+  let movementBalance: bigint | null = null;
+  try {
+    if (summary && amount) {
+      const value = BigInt(cents(amount));
+      movementBalance = summary.configured
+        ? BigInt(summary.balance_cents!) + (kind === "retiro" ? -value : value)
+        : value + BigInt(summary.contributions_cents) + BigInt(summary.received_cents) - BigInt(summary.disbursed_cents) - BigInt(summary.withdrawals_cents);
+    }
+  } catch { /* Input is validated before recording. */ }
   const refreshButton = <Button variant="outline" disabled={loading || busy} onClick={() => setRevision(n => n + 1)} aria-label="Actualizar caja"><RefreshCw size={16} /> Actualizar caja</Button>;
   return <section aria-label="Caja y ganancias" className="cash-overview space-y-4">
     <SectionHeading title="Caja y ganancias" description="Resumen de toda la operación, independiente de la búsqueda de clientes." action={<div className="flex flex-wrap gap-2">{refreshButton}{summary && <Button variant="outline" onClick={() => { setOpen(true); setSuccess(""); }}>Ver caja</Button>}</div>} />
@@ -140,6 +149,7 @@ export default function CashOverview({ role }: { role: "administrador" | "jefe" 
           <label className="block">{summary.configured ? "Importe (S/)" : "Dinero inicial (S/)"}<input className="mt-2" value={amount} onChange={e => setAmount(e.target.value)} inputMode="decimal" autoComplete="off" placeholder="0.00" required disabled={busy} /></label>
           <label className="block">Motivo del movimiento<textarea className="mt-2" value={note} onChange={e => setNote(e.target.value)} required minLength={3} maxLength={300} rows={2} disabled={busy} placeholder="Describe de dónde entra o por qué sale el dinero" /></label>
           <p className="text-xs text-slate-500">El registro conserva fecha, autor y motivo. Para corregir un importe usa un movimiento compensatorio con su explicación.</p>
+          {movementBalance !== null && <div className="rounded-xl bg-blue-50 p-4 text-sm" aria-label="Resultado previsto de caja"><p className="text-xs">Caja después de {summary.configured ? kind === "retiro" ? "este retiro" : "este aporte" : "configurar el dinero inicial"}</p><p className="mt-1 text-xl font-semibold tabular-nums">{cashMoney(movementBalance.toString())}</p><p className="mt-1 text-xs">Vista previa. Se registrará al confirmar el movimiento.</p></div>}
           {formError && <Notice error>{formError}</Notice>}
           {success && <Notice>{success}</Notice>}
           <Button type="submit" disabled={busy || loading || Boolean(error)}>{busy ? "Registrando…" : summary.configured ? "Registrar movimiento" : "Guardar dinero inicial"}</Button>

@@ -1,14 +1,15 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import LoanApplication from "@/components/loan-application";
 import CashOverview from "@/components/cash-overview";
 import { useLiveRevision } from "@/hooks/use-live-revision";
 import { getSupabase } from "@/lib/supabase";
 import {
   cents,
+  applyPayment,
   decimalSoles,
   formatPEN,
   monthlyRateForCapital,
-  requireApprovedProduct,
   scheduleLoan,
   scheduleRefinancing,
   requireRefinancingPrerequisites,
@@ -27,6 +28,7 @@ import {
   type Installment,
 } from "@/lib/portal";
 import { collectionStatus, weekdayLabel } from "@/lib/collection-status";
+import { cashSummarySchema, type CashMovement } from "@/lib/cash";
 import { downloadCreditWorkbook } from "@/lib/credit-export";
 import { whatsappReminder } from "@/lib/whatsapp-reminder";
 import { Button } from "@/components/ui/button";
@@ -62,6 +64,9 @@ export default function FinancialWorkspace({
   role,
   view = "general",
   clientFocus,
+  initialBorrowerId,
+  initialLoanId,
+  onClients,
   search,
   onSearchChange: setSearch,
 }: {
@@ -69,6 +74,9 @@ export default function FinancialWorkspace({
   role: "administrador" | "jefe";
   view?: FinancialView;
   clientFocus?: string;
+  initialBorrowerId?: string;
+  initialLoanId?: string;
+  onClients: (query?: string) => void;
   search: string;
   onSearchChange: (value: string) => void;
 }) {
@@ -90,20 +98,12 @@ export default function FinancialWorkspace({
   const [agendaRange, setAgendaRange] = useState<"hoy" | "semana" | "vencidos" | "proximos">("hoy");
   const [stateFilter, setStateFilter] = useState("todos");
   const [memberFilter, setMemberFilter] = useState("todos");
-  const [showNew, setShowNew] = useState(false);
-  const [selected, setSelected] = useState("");
+  const [showNew, setShowNew] = useState(Boolean(initialBorrowerId));
+  const [selected, setSelected] = useState(initialLoanId ?? "");
   const [refinanceDraft, setRefinanceDraft] = useState<{ key: string; start: string; months: 1 | 2 } | null>(null);
-  const [loanAmount, setLoanAmount] = useState("");
-  const [loanMonths, setLoanMonths] = useState<1 | 2>(1);
-  let displayedRate: number | null = null;
-  try { displayedRate = monthlyRateForCapital(cents(loanAmount)); } catch { /* The form explains validation on submit. */ }
-  const [start, setStart] = useState(limaDate);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [penaltyDraft, setPenaltyDraft] = useState<{ key: string; amount: string; reason: string } | null>(null);
   const [paidOn, setPaidOn] = useState(limaDate);
-  const [preview, setPreview] = useState<ReturnType<
-    typeof scheduleLoan
-  > | null>(null);
   const mutationLock = useRef(false);
   const requests = useRef(new Map<string, string>());
   useEffect(() => {
@@ -217,6 +217,13 @@ export default function FinancialWorkspace({
   let penaltyPreview = 0n;
   try { if (penaltyActive) penaltyPreview = BigInt(cents(penaltyDraft!.amount)); } catch { /* Validated on confirmation. */ }
 
+  let paymentPreview: ReturnType<typeof applyPayment> | null = null;
+  let paymentValidationError = "";
+  if (paymentAmount && selectedLoan && !penaltyActive) {
+    try { paymentPreview = applyPayment(cents(paymentAmount), selectedLoan.interest_pending, selectedLoan.capital_pending); }
+    catch (cause) { paymentValidationError = cause instanceof Error ? cause.message : "Revisa el importe."; }
+  }
+
   const selectedQuotas = data.installments
     .filter(
       (i) => i.loan_id === selected && i.is_current && i.pending_cents > 0,
@@ -226,16 +233,13 @@ export default function FinancialWorkspace({
     selectedQuotas
       .slice(0, count)
       .reduce((sum, i) => sum + BigInt(i.pending_cents), 0n);
-  const activeClients = new Set(
-    data.loans.filter((l) => l.status === "activo").map((l) => l.client_id),
-  );
   async function mutate(
     name: string,
     args: Record<string, string | number>,
     confirmation: string,
   ) {
-    if (role !== "administrador" || mutationLock.current) return;
-    if (!window.confirm(confirmation)) return;
+    if (role !== "administrador" || mutationLock.current) return false;
+    if (!window.confirm(confirmation)) return false;
     mutationLock.current = true;
     setBusy(true);
     setError("");
@@ -257,49 +261,37 @@ export default function FinancialWorkspace({
       setShowNew(false);
       setPaymentAmount("");
       setPenaltyDraft(null);
-      setPreview(null);
       setRevision((r) => r + 1);
+      return true;
     } catch (e) {
       const message = e instanceof Error ? e.message : "No se pudo completar la operación. Puedes reintentar con los mismos datos.";
       if (name === "settle_loan_with_penalty" && /could not find.*function|schema cache/i.test(message)) {
         setError("Aplica la migración 202611030010_settlement_penalty.sql en Supabase para habilitar la penalidad.");
-        return;
+        return false;
       }
       setError(/cuotas vencidas pendientes|producto de préstamo no autorizado/i.test(message) || (name === "refinance_loan" && /could not find.*function|schema cache/i.test(message))
         ? "Actualización de Supabase pendiente: la base de datos conserva las reglas anteriores. Aplica la actualización 007 y vuelve a intentarlo."
         : message);
+      return false;
     } finally {
       mutationLock.current = false;
       setBusy(false);
     }
   }
-  function prepareLoan(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
-    try {
-      const capital = cents(loanAmount);
-      const rate = monthlyRateForCapital(capital);
-      requireApprovedProduct(capital, rate, loanMonths);
-      setPreview(scheduleLoan(capital, rate, loanMonths, start));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Datos inválidos.");
-    }
+  function openLoan(id: string) {
+    setSelected(id);
+    setPaymentAmount("");
+    setPaidOn(limaDate());
+    setPenaltyDraft(null);
+    setError(""); setSuccess("");
   }
-  async function createLoan(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!preview) return;
-    const fields = new FormData(event.currentTarget);
-    await mutate(
-      "create_loan",
-      {
-        p_client: String(fields.get("client")),
-        p_capital: preview.originalCapital,
-        p_rate: monthlyRateForCapital(preview.originalCapital),
-        p_months: loanMonths,
-        p_start: start,
-      },
-      `¿Desembolsar ${money(preview.originalCapital)} y registrar una deuda total de ${money(preview.totalCents)}? El préstamo no se podrá cancelar ni eliminar.`,
-    );
+  async function createLoan(client: Customer, proposal: ReturnType<typeof scheduleLoan>) {
+    return mutate("create_loan", {
+      p_client: client.id, p_capital: proposal.originalCapital,
+      p_rate: monthlyRateForCapital(proposal.originalCapital),
+      p_months: proposal.installments.length === 8 ? 2 : 1,
+      p_start: addDays(proposal.installments[0].dueDate, -7),
+    }, `¿Desembolsar ${money(proposal.originalCapital)} a ${client.full_name}, DNI ${client.dni}, stand ${client.stand_code}? Interés: ${money(proposal.interestCents)}. Total a cobrar: ${money(proposal.totalCents)} en ${proposal.installments.length} cuotas. Revisa los datos antes de confirmar.`);
   }
   async function pay(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -312,14 +304,15 @@ export default function FinancialWorkspace({
         await mutate("settle_loan_with_penalty", {
           p_loan: selected, p_expected_balance: Number(settlementBalance), p_penalty: penalty,
           p_reason: penaltyDraft!.reason.trim(), p_paid_on: paidOn,
-        }, `¿Liquidar el préstamo? Saldo: ${money(settlementBalance)}. Penalidad: ${money(penalty)}. Total a cobrar: ${money(settlementBalance + BigInt(penalty))}. La penalidad se registra por separado. El pago no se podrá anular.`);
+        }, `¿Liquidar el préstamo de ${selectedClient?.full_name ?? "este cliente"}? Saldo: ${money(settlementBalance)}. Penalidad: ${money(penalty)}. Total a cobrar: ${money(settlementBalance + BigInt(penalty))}. La penalidad se registra por separado. El pago no se podrá anular.`);
         return;
       }
-      await mutate(
-        "record_payment",
-        { p_loan: selected, p_amount: cents(paymentAmount), p_paid_on: paidOn },
-        `¿Registrar un pago de ${money(cents(paymentAmount))}? Se aplicará primero a intereses y después a capital. No se podrá anular.`,
-      );
+      if (!selectedLoan) return;
+      const amount = cents(paymentAmount);
+      const distribution = applyPayment(amount, selectedLoan.interest_pending, selectedLoan.capital_pending);
+      await mutate("record_payment", { p_loan: selected, p_amount: amount, p_paid_on: paidOn },
+        `¿Registrar ${money(amount)} de ${selectedClient?.full_name ?? "este cliente"}, DNI ${selectedClient?.dni ?? "por registrar"}? Interés: ${money(distribution.interestPaid)}. Capital: ${money(distribution.capitalPaid)}. Saldo después: ${money(distribution.pendingCapital + distribution.pendingInterest)}. El pago no se podrá anular.`);
+
     } catch (e) {
       setError(e instanceof Error ? e.message : "Monto inválido.");
     }
@@ -582,7 +575,7 @@ export default function FinancialWorkspace({
             money(i.pending_cents),
             quotaBadge(i),
             <div key="actions" className="flex flex-wrap justify-end gap-2">
-              <Button variant="outline" onClick={() => setSelected(l.id)}>
+              <Button variant="outline" onClick={() => openLoan(l.id)}>
                 {i.pending_cents > 0 && role === "administrador"
                   ? "Registrar pago"
                   : "Ver préstamo"}
@@ -686,21 +679,33 @@ export default function FinancialWorkspace({
           .map((i) => i.loan_id);
       if (kind === "refinanciaciones")
         selectedIds = refinanced.map((p) => p.loan_id);
+      const cashResult = await supabase!.rpc("cash_summary");
+      if (cashResult.error) throw Error("No se pudo consultar la caja. Revisa la conexión y vuelve a exportar.");
+      const cashSummary = cashSummarySchema.parse(cashResult.data);
+      const cashMovements: CashMovement[] = [];
+      for (let offset = 0; ; offset += 1000) {
+        const result = await supabase!.from("cash_movements").select("id,kind,amount_cents,note,created_at").order("created_at").order("id").range(offset, offset + 999);
+        if (result.error) throw Error("No se pudieron consultar los movimientos de caja. Vuelve a exportar.");
+        cashMovements.push(...result.data as CashMovement[]);
+        if (result.data.length < 1000) break;
+      }
       await downloadCreditWorkbook(
         {
           clients,
           ...data,
           today,
+          cashSummary,
+          cashMovements,
           selectedLoanIds: [...new Set(selectedIds)],
           description: `Selección: ${kind}. Búsqueda: ${search || "todos"}. Incluye el historial completo de los préstamos seleccionados.`,
         },
         `pm-creditos-${kind}.xlsx`,
       );
       setSuccess(
-        "Excel descargado. Incluye cartera, cuotas, pagos y refinanciaciones.",
+        "Excel descargado. Incluye cartera, pagos, penalidades, refinanciaciones y el resumen global de préstamos y caja.",
       );
-    } catch {
-      setError("No se pudo generar el Excel. Inténtalo nuevamente.");
+    } catch (cause) {
+      setError(cause instanceof Error && cause.message.startsWith("No se pud") ? cause.message : "No se pudo generar el Excel. Inténtalo nuevamente.");
     } finally {
       setExporting(false);
     }
@@ -762,107 +767,12 @@ export default function FinancialWorkspace({
       </Card>
       {tab === "general" && (
         <>
-          {view === "prestamos" && <SectionHeading title="Cartera de préstamos" description="Saldo, cuota semanal y estado de cada prestatario." action={role === "administrador" && <Button onClick={() => { setShowNew(!showNew); setPreview(null); }}><Plus size={16} /> Nuevo préstamo</Button>} />}
-          {view === "prestamos" && showNew && role === "administrador" && (
-            <Card>
-              <SectionHeading
-                title="Preparar préstamo"
-                description="Ingresa el monto y el plazo; la tasa se calcula automáticamente."
-                action={
-                  <Button variant="outline" onClick={() => setShowNew(false)}>
-                    Cancelar
-                  </Button>
-                }
-              />
-              <form
-                onSubmit={prepareLoan}
-                className="grid gap-5 sm:grid-cols-2"
-              >
-                <label>
-                  Monto del préstamo (S/)
-                  <input type="number" min="0.01" step="0.01" inputMode="decimal" required value={loanAmount} onChange={event => { setLoanAmount(event.target.value); setPreview(null); }} placeholder="Ej. 1500.00" />
-                </label>
-                <label>
-                  Plazo del préstamo
-                  <select aria-label="Plazo del préstamo" value={loanMonths} onChange={event => { setLoanMonths(Number(event.target.value) as 1 | 2); setPreview(null); }}>
-                    <option value="1">1 mes · 4 cuotas semanales</option>
-                    <option value="2">2 meses · 8 cuotas semanales</option>
-                  </select>
-                </label>
-                <div className="rounded-xl bg-blue-50 p-4 text-sm text-blue-700" role="status">
-                  Tasa mensual: <strong>{displayedRate === null ? "Ingresa un monto mayor que cero" : `${displayedRate / 100} %`}</strong>
-                  <p className="mt-1 text-xs">Hasta S/500: 7 % mensual. Más de S/500: 6 % mensual.</p>
-                </div>
-                <label>
-                  Fecha del préstamo
-                  <input
-                    type="date"
-                    max={today}
-                    value={start}
-                    onChange={(e) => {
-                      setStart(e.target.value);
-                      setPreview(null);
-                    }}
-                    required
-                  />
-                </label>
-                <div>
-                  <Button type="submit" variant="outline">
-                    Revisar cronograma
-                  </Button>
-                </div>
-              </form>
-              {preview && (
-                <div className="mt-6 space-y-5 border-t border-slate-100 pt-6">
-                  <div className="rounded-xl bg-blue-50 p-5 text-sm leading-7">
-                    Capital: {money(preview.originalCapital)} · Interés:{" "}
-                    {money(preview.interestCents)} · Total:{" "}
-                    <strong>{money(preview.totalCents)}</strong>
-                  </div>
-                  <ul className="grid gap-2 sm:grid-cols-2">
-                    {preview.installments.map((i) => (
-                      <li
-                        key={i.number}
-                        className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm"
-                      >
-                        Cuota {i.number} · {dateLabel(i.dueDate)} ·{" "}
-                        {money(i.scheduledCents)}
-                      </li>
-                    ))}
-                  </ul>
-                  <form onSubmit={createLoan} className="space-y-4">
-                    <label>
-                      Cliente
-                      <select name="client" required>
-                        <option value="">
-                          Selecciona un cliente identificado sin préstamo activo
-                        </option>
-                        {clients
-                          .filter(
-                            (c) =>
-                              !activeClients.has(c.id) &&
-                              c.stand_code &&
-                              c.member_type,
-                          )
-                          .map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.full_name} · stand {c.stand_code} ·{" "}
-                              {c.member_type}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                    <Button disabled={busy} type="submit">
-                      {busy ? "Registrando…" : "Confirmar desembolso"}
-                    </Button>
-                  </form>
-                </div>
-              )}
-            </Card>
-          )}
+          {view === "prestamos" && <SectionHeading title="Cartera de préstamos" description="Saldo, cuota semanal y estado de cada prestatario." action={role === "administrador" && <Button disabled={busy || loading} onClick={() => { setShowNew(true); setError(""); setSuccess(""); }}><Plus size={16} /> Nuevo préstamo</Button>} />}
+          {view === "prestamos" && showNew && role === "administrador" && <Card>
+            <LoanApplication clients={clients} activeLoans={data.loans.filter(l => l.status === "activo")} busy={busy} loading={loading} initialBorrowerId={initialBorrowerId} submissionError={error} onClearError={() => setError("")} onSubmit={createLoan} onClients={onClients} onOpenLoan={id => { setShowNew(false); openLoan(id); }} onCancel={() => setShowNew(false)} />
+          </Card>}
           <div className="flex flex-wrap items-end justify-between gap-4">
             {portfolioFilters()}
-
           </div>
           <p className="text-xs text-slate-500">
             {generalEntries.length} préstamos · Saldo: capital e intereses
@@ -895,7 +805,7 @@ export default function FinancialWorkspace({
                   key="name"
                   type="button"
                   aria-label={`Ver detalle de ${client?.full_name ?? "prestatario"}`}
-                  onClick={() => setSelected(loan.id)}
+                  onClick={() => openLoan(loan.id)}
                   className="min-h-11 rounded-lg border-l-4 px-3 text-left font-semibold text-slate-900 hover:bg-slate-50"
                   style={{
                     borderColor: ["En mora", "Liquidación urgente"].includes(
@@ -1018,7 +928,7 @@ export default function FinancialWorkspace({
               .map((p) => (
                 <button
                   key={p.id}
-                  onClick={() => setSelected(p.loan_id)}
+                  onClick={() => openLoan(p.loan_id)}
                   className="flex min-h-11 w-full items-center justify-between gap-4 border-b border-slate-100 py-3 text-left text-sm"
                 >
                   <span>{customer(loanById(p.loan_id)!)?.full_name}</span>
@@ -1067,7 +977,7 @@ export default function FinancialWorkspace({
                   <Button
                     key="open"
                     variant="outline"
-                    onClick={() => setSelected(l.id)}
+                    onClick={() => openLoan(l.id)}
                   >
                     Ver préstamo
                   </Button>,
@@ -1104,7 +1014,7 @@ export default function FinancialWorkspace({
               <Button
                 key="open"
                 variant="outline"
-                onClick={() => setSelected(p.loan_id)}
+                onClick={() => openLoan(p.loan_id)}
               >
                 Abrir
               </Button>,
@@ -1118,7 +1028,7 @@ export default function FinancialWorkspace({
         <>
           <Card>
             <SectionHeading title="Registro de penalidades" description="Cobros adicionales realizados al liquidar, separados del capital y del interés." action={<div className="flex flex-wrap gap-2"><Button variant="outline" disabled={loading} onClick={() => exportReport("penalidades")}>Penalidades CSV</Button><Button disabled={loading || exporting} onClick={() => exportExcel("penalidades")}>Penalidades Excel</Button></div>} />
-            <DataTable caption="Registro de penalidades" headers={["Cliente", "Fecha", "Penalidad cobrada", "Motivo", "Préstamo"]} keys={payments.filter(p => (p.penalty_cents ?? 0) > 0).map(p => p.id)} rows={payments.filter(p => (p.penalty_cents ?? 0) > 0).map(p => [customerCell(loanById(p.loan_id)!), dateLabel(p.paid_on), money(p.penalty_cents!), p.penalty_reason ?? "", <Button key="open" variant="outline" onClick={() => setSelected(p.loan_id)}>Ver préstamo</Button>])} emptyTitle="Sin penalidades registradas" emptyDescription="Aquí aparecerán únicamente las penalidades cobradas al liquidar un préstamo." />
+            <DataTable caption="Registro de penalidades" headers={["Cliente", "Fecha", "Penalidad cobrada", "Motivo", "Préstamo"]} keys={payments.filter(p => (p.penalty_cents ?? 0) > 0).map(p => p.id)} rows={payments.filter(p => (p.penalty_cents ?? 0) > 0).map(p => [customerCell(loanById(p.loan_id)!), dateLabel(p.paid_on), money(p.penalty_cents!), p.penalty_reason ?? "", <Button key="open" variant="outline" onClick={() => openLoan(p.loan_id)}>Ver préstamo</Button>])} emptyTitle="Sin penalidades registradas" emptyDescription="Aquí aparecerán únicamente las penalidades cobradas al liquidar un préstamo." />
           </Card>
           <Card>
             <SectionHeading title="Panel de cobranza" description="Exporta el resumen de prestatarios, saldos, cuotas y estados." action={<div className="flex flex-wrap gap-2"><Button disabled={loading || exporting} onClick={() => exportExcel("general")}><Download size={16} /> Panel de cobranza Excel</Button><Button variant="outline" onClick={exportGeneral}><Download size={16} /> Exportar panel CSV</Button></div>} />
@@ -1251,6 +1161,12 @@ export default function FinancialWorkspace({
               <PaymentBadge status={selectedLoan.status} />
               {statusBadge(selectedLoan)}
             </div>
+            <div className="workflow-person rounded-xl bg-[var(--accent-soft)] p-4 text-sm">
+              <p>DNI {selectedClient?.dni ?? "—"} · Stand {selectedClient?.stand_code ?? "por registrar"} · {selectedClient?.member_type ?? "Condición por registrar"}</p>
+              <div className="mt-3 flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs">Saldo del préstamo</p><p className="mt-1 text-2xl font-semibold tabular-nums">{money(settlementBalance)}</p></div><p className="text-xs">Fin del plazo: {selectedPeriod ? dateLabel(selectedPeriod.end_date) : "Por verificar"}</p></div>
+            </div>
+            <details className="rounded-xl border border-slate-200 p-4">
+              <summary className="min-h-11 py-2 text-sm font-semibold">Datos del cliente y contrato</summary>
             <dl className="grid gap-3 rounded-2xl bg-slate-50 p-4 text-sm sm:grid-cols-2">
               {[
                 ["Código stand", selectedClient?.stand_code ?? "Por registrar"],
@@ -1284,6 +1200,7 @@ export default function FinancialWorkspace({
                 </div>
               ))}
             </dl>
+            </details>
             {selectedClient &&
               selectedQuotas[0] &&
               /^9\d{8}$/.test(selectedClient.phone) && (
@@ -1390,6 +1307,8 @@ export default function FinancialWorkspace({
                         />
                       </label>
                     </div>
+                    {!penaltyActive && paymentPreview && <div aria-label="Distribución estimada del pago" className="rounded-xl bg-blue-50 p-4 text-sm"><h4 className="mb-3 font-semibold">Así se aplicará el pago</h4><dl className="grid gap-3 sm:grid-cols-3"><div><dt>Interés</dt><dd className="font-semibold">{money(paymentPreview.interestPaid)}</dd></div><div><dt>Capital</dt><dd className="font-semibold">{money(paymentPreview.capitalPaid)}</dd></div><div><dt>Saldo después del pago</dt><dd className="font-semibold">{money(paymentPreview.pendingCapital + paymentPreview.pendingInterest)}</dd></div></dl></div>}
+                    {paymentValidationError && <Notice error>{paymentValidationError}</Notice>}
                     {penaltyActive && <fieldset className="space-y-4 rounded-xl border border-[var(--warning-border)] bg-[var(--warning-bg)] p-4">
                       <legend className="px-2 font-semibold">Penalidad opcional por plazo vencido</legend>
                       <label className="block">Penalidad (S/)<input inputMode="decimal" required disabled={busy} value={penaltyDraft!.amount} onChange={e => setPenaltyDraft({ ...penaltyDraft!, amount: e.target.value })} placeholder="0.00" /></label>
@@ -1398,7 +1317,7 @@ export default function FinancialWorkspace({
                       <p className="text-xs">Se cobra junto con la liquidación. Se registra por separado del capital y del interés. Puedes desactivarla con el botón Penalidad.</p>
                     </fieldset>}
                     <div className="flex flex-wrap gap-2">
-                      <Button type="submit" disabled={busy || loading}>
+                      <Button type="submit" disabled={busy || loading || (!penaltyActive && Boolean(paymentValidationError))}>
                         {busy ? "Registrando…" : penaltyActive ? "Confirmar liquidación con penalidad" : "Confirmar pago"}
                       </Button>
                     </div>
@@ -1415,6 +1334,7 @@ export default function FinancialWorkspace({
                   </summary>
                   <div className="mt-4 space-y-4 text-sm leading-6">
                     <p>Misma tasa mensual {selectedLoan.rate_basis_points / 100} % sobre el capital original. El interés anterior debe estar pagado y el periodo terminado.</p>
+                    <ul className="space-y-2 rounded-xl bg-slate-50 p-4" aria-label="Condiciones para refinanciar"><li>Interés anterior: {selectedLoan.interest_pending === 0 ? "pagado" : `${money(selectedLoan.interest_pending)} pendiente`}</li><li>Plazo anterior: {selectedPeriod && today > selectedPeriod.end_date ? "terminado" : "vigente"}{selectedPeriod ? ` · vence ${dateLabel(selectedPeriod.end_date)}` : ""}</li></ul>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <label>Fecha de refinanciación
                         <input type="date" required value={refinanceStart} min={selectedPeriod ? addDays(selectedPeriod.end_date, 1) : undefined} max={today} disabled={busy} onChange={event => setRefinanceDraft({ key: refinanceKey, start: event.target.value, months: refinanceMonths })} />
