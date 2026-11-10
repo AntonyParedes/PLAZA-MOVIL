@@ -1,4 +1,5 @@
 "use client";
+import { EarlySettlement } from "@/components/early-settlement";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { getSupabase } from "@/lib/supabase";
 import {
@@ -205,7 +206,9 @@ export default function FinancialWorkspace({
       const result = await supabase!.rpc(name, { ...args, p_request: id });
       if (result.error) throw new Error(result.error.message);
       setSuccess(
-        name === "record_payment"
+        name === "settle_loan_early"
+          ? "Cancelación anticipada registrada. El préstamo quedó liquidado."
+          : name === "record_payment"
           ? "Pago registrado correctamente."
           : name === "refinance_loan"
             ? "Refinanciación registrada. El nuevo periodo ya está disponible."
@@ -270,13 +273,14 @@ export default function FinancialWorkspace({
   function exportReport(kind: string) {
     if (kind === "pagos")
       downloadCSV("pagos-pm-creditos.csv", [
-        ["Cliente", "Fecha", "Total PEN", "Interés PEN", "Capital PEN"],
+        ["Cliente", "Fecha", "Total PEN", "Interés PEN", "Capital PEN", "Descuento de interés PEN"],
         ...payments.map((p) => [
           customer(loanById(p.loan_id)!)?.full_name ?? "",
           p.paid_on,
           decimalSoles(p.amount_cents),
           decimalSoles(p.interest_cents),
           decimalSoles(p.capital_cents),
+          decimalSoles(p.interest_discount_cents ?? 0),
         ]),
       ]);
     else if (kind === "vencidos")
@@ -1455,6 +1459,10 @@ export default function FinancialWorkspace({
                     </p>
                   </form>
                 </Card>
+                {selectedPeriod && selectedLoan.interest_pending > 0 && today < selectedPeriod.end_date && (
+                  <EarlySettlement key={`${selected}:${revision}`} loan={selectedLoan} period={selectedPeriod} today={today} busy={busy}
+                    onConfirm={(args, confirmation) => mutate("settle_loan_early", args, confirmation)} />
+                )}
                 <details className="surface p-5">
                   <summary className="flex min-h-11 items-center justify-between gap-3 text-sm font-semibold">
                     <span>Refinanciar un mes</span>
@@ -1543,6 +1551,7 @@ export default function FinancialWorkspace({
                         "Fecha original",
                         "Programado",
                         "Pagado",
+                        "Descuento",
                         "Saldo",
                         "Estado",
                       ]}
@@ -1558,6 +1567,7 @@ export default function FinancialWorkspace({
                           dateLabel(i.due_date),
                           money(i.scheduled_cents),
                           money(i.paid_cents),
+                          money(i.discounted_cents ?? 0),
                           money(i.pending_cents),
                           p.is_current ? (
                             quotaBadge(i)
@@ -1579,7 +1589,7 @@ export default function FinancialWorkspace({
               <SectionHeading title="Pagos registrados" />
               <DataTable
                 caption="Pagos de este préstamo"
-                headers={["Fecha", "Total", "Interés", "Capital"]}
+                headers={["Fecha", "Total cobrado", "Interés cobrado", "Capital", "Descuento de interés"]}
                 keys={data.payments
                   .filter((p) => p.loan_id === selected)
                   .sort((a, b) => a.created_at.localeCompare(b.created_at))
@@ -1592,6 +1602,7 @@ export default function FinancialWorkspace({
                     money(p.amount_cents),
                     money(p.interest_cents),
                     money(p.capital_cents),
+                    money(p.interest_discount_cents ?? 0),
                   ])}
                 emptyTitle="Aún no hay pagos"
                 emptyDescription="El historial se actualizará al registrar un pago."

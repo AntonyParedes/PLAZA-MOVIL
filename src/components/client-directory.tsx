@@ -356,6 +356,7 @@ export default function ClientDirectory({
                                     <span>
                                       Pagado: {formatPEN(i.paid_cents)} · Saldo:{" "}
                                       {formatPEN(i.pending_cents)}
+                                      {(i.discounted_cents ?? 0) > 0 && <> · Descuento: {formatPEN(i.discounted_cents!)}</>}
                                     </span>
                                   </div>
                                 ))}
@@ -376,6 +377,7 @@ export default function ClientDirectory({
                                     {formatPEN(p.amount_cents)} · Interés:{" "}
                                     {formatPEN(p.interest_cents)} · Capital:{" "}
                                     {formatPEN(p.capital_cents)}
+                                    {(p.interest_discount_cents ?? 0) > 0 && <> · Descuento de interés: {formatPEN(p.interest_discount_cents!)}</>}
                                   </div>
                                 ))}
                               {!account.payments.some(

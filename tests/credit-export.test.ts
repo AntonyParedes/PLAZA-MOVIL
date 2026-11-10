@@ -206,3 +206,18 @@ test("texto de clientes no se ejecuta como fórmula y céntimos grandes se conse
   assert.equal(excelMoney(9007199254740991n), "90071992547409.91");
   assert.equal(excelMoney(123456), 1234.56);
 });
+
+test("Excel separa descuentos de interés del efectivo cobrado", async () => {
+  const book = await buildCreditWorkbook({...data,
+    payments: [{...data.payments[0], interest_discount_cents:3000}],
+    installments: data.installments.map((i,index)=>({...i,discounted_cents:index===2?3000:0})),
+  });
+  const {default: ExcelJS} = await import("exceljs");
+  const opened = new ExcelJS.Workbook();
+  await opened.xlsx.load(await book.xlsx.writeBuffer());
+  const payments=opened.getWorksheet("Pagos")!;
+  assert.equal(payments.getRow(2).getCell(column(payments,"DESCUENTO DE INTERÉS")).value,30);
+  assert.equal(payments.getRow(2).getCell(column(payments,"TOTAL PAGADO")).value,360);
+  const quotas=opened.getWorksheet("Cuotas")!;
+  assert.equal(quotas.getRow(4).getCell(column(quotas,"DESCUENTO DE INTERÉS")).value,30);
+});

@@ -312,6 +312,7 @@ export async function buildCreditWorkbook(input: CreditExportData) {
       { title: "ID CUOTA", width: 38 },
       { title: "ID PERIODO", width: 38 },
       { title: "ID PRÉSTAMO", width: 38 },
+      moneyColumn("DESCUENTO DE INTERÉS"),
     ],
     installments.map((i) => [
       ...identity(i.loan_id),
@@ -336,6 +337,7 @@ export async function buildCreditWorkbook(input: CreditExportData) {
       i.id,
       i.period_id,
       i.loan_id,
+      excelMoney(i.discounted_cents ?? 0),
     ]),
   );
   setupSheet(
@@ -350,6 +352,7 @@ export async function buildCreditWorkbook(input: CreditExportData) {
       { title: "REGISTRO (LIMA)", width: 24 },
       { title: "ID PAGO", width: 38 },
       { title: "ID PRÉSTAMO", width: 38 },
+      moneyColumn("DESCUENTO DE INTERÉS"),
     ],
     payments.map((p) => [
       ...identity(p.loan_id),
@@ -365,6 +368,7 @@ export async function buildCreditWorkbook(input: CreditExportData) {
       }).format(new Date(p.created_at)),
       p.id,
       p.loan_id,
+      excelMoney(p.interest_discount_cents ?? 0),
     ]),
   );
   const periodColumns: Column[] = [

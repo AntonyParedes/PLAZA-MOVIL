@@ -1183,3 +1183,41 @@ test("el botón de apariencia también funciona al ingresar, con almacenamiento 
     await page.evaluate(() => getComputedStyle(document.body).backgroundColor),
   ).toBe("rgb(247, 246, 249)");
 });
+
+test("cancelación anticipada muestra descuento, valida el límite y confirma importe definitivo", async ({page}) => {
+  const fixtures = await dashboardFixtures();
+  const calls = await mockSupabase(page, "administrador", fixtures);
+  await login(page);
+  await navigateModule(page, "Panel general");
+  await page.getByRole("button", {name: "Ver detalle de Ana Socia", exact: true}).click();
+  const sheet = page.getByRole("dialog");
+  await sheet.getByText("Cancelación anticipada con descuento", {exact: true}).click();
+  const confirm = sheet.getByRole("button", {name: "Confirmar cancelación anticipada", exact: true});
+  await expect(confirm).toBeDisabled();
+  await sheet.getByLabel("Descuento de interés (S/)").fill("60.01");
+  await expect(confirm).toBeDisabled();
+  await expect(sheet.getByRole("alert")).toContainText("no superar el interés pendiente");
+  await sheet.getByLabel("Descuento de interés (S/)").fill("30.00");
+  await expect(sheet.getByText("Total de cancelación").locator("..")).toContainText("840.00");
+  page.once("dialog", async dialog => {expect(dialog.message()).toContain("840.00"); await dialog.dismiss();});
+  await confirm.click();
+  expect(calls).toHaveLength(0);
+  page.once("dialog", dialog => dialog.accept());
+  await confirm.click();
+  await expect.poll(() => calls.length).toBe(1);
+  expect(calls[0]).toMatchObject({name:"settle_loan_early",body:{p_loan:"loan-0",p_amount:84000,p_discount:3000,p_paid_on:fixtures.payments[0].paid_on}});
+  expect(calls[0].body.p_request).toMatch(/^[0-9a-f-]{36}$/);
+  await expect(sheet.getByText("Cancelación anticipada registrada. El préstamo quedó liquidado.")).toBeVisible();
+});
+
+for (const scenario of ["jefe", "vencido"] as const) {
+  test(`cancelación anticipada no se ofrece a ${scenario}`, async ({page}) => {
+    const fixtures = await dashboardFixtures();
+    if (scenario === "vencido") fixtures.loan_periods[0].end_date = fixtures.payments[0].paid_on;
+    await mockSupabase(page, scenario === "jefe" ? "jefe" : "administrador", fixtures);
+    await login(page);
+    await navigateModule(page, "Panel general");
+    await page.getByRole("button", {name: "Ver detalle de Ana Socia", exact: true}).click();
+    await expect(page.getByText("Cancelación anticipada con descuento", {exact: true})).toHaveCount(0);
+  });
+}

@@ -140,3 +140,13 @@ export function requireRefinancingPrerequisites(pendingInterest: number, overdue
   monetary(overdueUnpaidInstallments);
   if (overdueUnpaidInstallments > 0) throw new Error('No se puede refinanciar con cuotas vencidas pendientes.');
 }
+
+/** Manual interest forgiveness only; collected interest is never refunded. */
+export function earlySettlementQuote(capital: number, pendingInterest: number, discount: number) {
+  [capital, pendingInterest, discount].forEach(monetary);
+  if (capital === 0) throw new Error('El préstamo ya no tiene capital pendiente.');
+  if (discount === 0 || discount > pendingInterest) throw new Error('El descuento debe ser mayor que cero y no superar el interés pendiente.');
+  const total = BigInt(capital) + BigInt(pendingInterest) - BigInt(discount);
+  if (total > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Monto fuera de rango.');
+  return { interestCents: pendingInterest - discount, totalCents: Number(total) };
+}

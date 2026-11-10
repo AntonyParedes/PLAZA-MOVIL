@@ -102,3 +102,11 @@ Panel general marca en morado «Vence hoy» para cuotas vigentes con saldo pendi
 El menú omite Cobros semanales e Historial de pagos. El registro y la consulta de pagos están en el detalle del préstamo, accesible desde Panel general o Préstamos; la agenda sigue en Dashboard y las exportaciones en Reportes. Estos cambios de interfaz no requieren SQL adicional.
 
 El botón luna/sol de la barra superior y del acceso alterna modo día y noche con fondos suaves. La elección se conserva en este navegador. Configuración permite volver a seguir el dispositivo. No requiere SQL adicional.
+
+## Cancelación anticipada con descuento manual
+
+En el detalle de un préstamo activo, antes del vencimiento del periodo vigente, el administrador puede abrir «Cancelación anticipada con descuento», indicar el descuento en soles y revisar capital a cobrar, interés a cobrar y total. Se cobra todo el capital pendiente más el interés pendiente menos el descuento. El descuento debe ser positivo y no superar el interés pendiente; no devuelve intereses ya cobrados. En la fecha de vencimiento y después no está disponible. La fecha efectiva no puede ser futura, anterior al periodo ni anterior a un pago ya registrado.
+
+La confirmación es definitiva. La operación SQL bloquea el préstamo, verifica el total contra el saldo actualizado y registra pago, descuento, asignaciones a cuotas y auditoría en una sola transacción, con UUID idempotente. El préstamo y las cuotas quedan sin saldo. Se conservan los cronogramas originales y los abonos previos; los descuentos se muestran separados del efectivo recibido en detalle, Clientes, CSV de pagos y hojas Pagos/Cuotas del Excel. Jefe solo consulta.
+
+Para activar esta versión: aplicar **una sola vez** `supabase/migrations/202611100005_early_settlement.sql` en Supabase SQL Editor sobre el proyecto que ya tiene las migraciones 001–004, y después desplegar la nueva aplicación en Vercel. No repetir las migraciones anteriores. Sin la 005, la cancelación anticipada no se podrá registrar; los pagos habituales conservan su operación existente. No requiere nuevas variables de entorno. Las pruebas locales usan PostgreSQL PGlite y Supabase simulado; no acreditan ejecución en el proyecto real ni concurrencia entre conexiones independientes.
