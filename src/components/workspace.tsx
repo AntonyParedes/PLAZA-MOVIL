@@ -3,7 +3,6 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { z } from "zod";
 import {
   ShieldCheck,
-  Search,
   Plus,
   ArrowRight,
   Wallet,
@@ -14,16 +13,19 @@ import AppShell, { Brand, type Section } from "@/components/app-shell";
 import {
   Badge,
   Card,
+  ClientSearch,
   EmptyState,
   LoadingSkeleton,
   Notice,
   SectionHeading,
   Sheet,
 } from "@/components/ui/dashboard";
+import { useLiveRevision } from "@/hooks/use-live-revision";
 import { getSupabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import FinancialWorkspace from "@/components/financial-workspace";
 import ClientDirectory from "@/components/client-directory";
+import ClientDeletion from "@/components/client-deletion";
 import { ThemeToggle, ThemePreference } from "@/components/theme-toggle";
 import ImportReview from "@/components/import-review";
 
@@ -57,10 +59,14 @@ export default function Workspace() {
   const [message, setMessage] = useState("");
   const [clients, setClients] = useState<Client[]>([]);
   const [search, setSearch] = useState("");
+  const liveRevision = useLiveRevision(Boolean(userId));
   const [section, setSection] = useState<Section>("dashboard");
   const [memberFilter, setMemberFilter] = useState("todos");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
+  const [deleting, setDeleting] = useState<Client | null>(null);
+  const [clientRevision, setClientRevision] = useState(0);
+  const [financeIntent, setFinanceIntent] = useState<{borrowerId?:string;loanId?:string}>({});
   useEffect(() => {
     if (!supabase) return;
     let active = true;
@@ -77,6 +83,8 @@ export default function Workspace() {
         setMessage("");
         setShowForm(false);
         setEditing(null);
+        setDeleting(null);
+        setFinanceIntent({});
         setSearch("");
         setMemberFilter("todos");
         setSection("dashboard");
@@ -102,6 +110,7 @@ export default function Workspace() {
         profile.error ||
         !["administrador", "jefe"].includes(profile.data?.role)
       ) {
+        setRole(null);
         setMessage(
           "Tu usuario no tiene un rol autorizado. Solicita al responsable que te asigne un perfil.",
         );
@@ -133,7 +142,7 @@ export default function Workspace() {
     return () => {
       active = false;
     };
-  }, [userId]);
+  }, [userId, liveRevision, clientRevision]);
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -214,6 +223,7 @@ export default function Workspace() {
     setClients([]);
     setMessage("");
     setShowForm(false);
+    setDeleting(null);
   }
   const visible = clients.filter(
     (client) =>
@@ -223,6 +233,8 @@ export default function Workspace() {
       (memberFilter === "todos" || client.member_type === memberFilter),
   );
   function navigate(next: Section) {
+    setFinanceIntent({});
+    setDeleting(null);
     setSection(next);
   }
   const notice = message && (
@@ -239,21 +251,21 @@ export default function Workspace() {
     );
   if (!userId || !role || !supabase)
     return (
-      <div className="min-h-screen lg:grid lg:grid-cols-2">
-        <aside className="app-navigation flex flex-col justify-between bg-[var(--navy)] p-7 text-white sm:p-12 lg:p-16">
+      <div className="login-shell min-h-screen lg:grid lg:grid-cols-2">
+        <aside className="login-story flex flex-col justify-between bg-[var(--navy)] p-7 text-white sm:p-12 lg:p-16">
           <Brand />
-          <div className="py-10 lg:py-20">
+          <div className="login-story-copy py-10 lg:py-20">
             <Badge tone="info">Plaza Móvil</Badge>
             <h1 className="mt-6 max-w-lg text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
               Tus créditos, pagos y clientes.
               <br />
               <span className="text-blue-300">Todo en un solo lugar.</span>
             </h1>
-            <p className="mt-5 max-w-md text-sm leading-7 text-slate-300">
+            <p className="login-description mt-5 max-w-md text-sm leading-7 text-slate-300">
               Una vista clara de tu cartera para gestionar préstamos y acompañar
               cada pago.
             </p>
-            <div className="mt-8 grid max-w-lg gap-3 sm:grid-cols-3">
+            <div className="login-benefits mt-8 grid max-w-lg gap-3 sm:grid-cols-3">
               {[
                 [Wallet, "Créditos"],
                 [CalendarDays, "Pagos y saldos"],
@@ -273,10 +285,10 @@ export default function Workspace() {
             </div>
           </div>
           <p className="text-xs text-slate-400">
-            PM Créditos · Soles peruanos · Lima
+            Rapi Créditos · Soles peruanos · Lima
           </p>
         </aside>
-        <main className="flex items-center justify-center p-6 sm:p-12">
+        <main className="login-access flex items-center justify-center p-6 sm:p-12">
           <div className="w-full max-w-md space-y-6">
             <div className="flex justify-end">
               <ThemeToggle />
@@ -306,7 +318,7 @@ export default function Workspace() {
               <>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-widest text-blue-600">
-                    Bienvenido a PM Créditos
+                    Bienvenido a Rapi Créditos
                   </p>
                   <h2 className="mt-3 text-3xl font-semibold tracking-tight">
                     Iniciar sesión
@@ -315,7 +327,7 @@ export default function Workspace() {
                     Ingresa a tu espacio de trabajo con tu cuenta autorizada.
                   </p>
                 </div>
-                <form onSubmit={login} className="surface space-y-5 p-6 sm:p-8">
+                <form onSubmit={login} className="login-form surface space-y-5 p-6 sm:p-8">
                   <label>
                     Correo electrónico
                     <input
@@ -356,8 +368,6 @@ export default function Workspace() {
       onNavigate={navigate}
       role={role}
       onLogout={logout}
-      search={search}
-      onSearchChange={setSearch}
     >
       {notice}
       {section === "importar" && role === "administrador" ? (
@@ -367,7 +377,7 @@ export default function Workspace() {
           <Card>
             <SectionHeading
               title="Tu espacio de trabajo"
-              description="Preferencias de operación de PM Créditos."
+              description="Preferencias de operación de Rapi Créditos."
             />
             <div className="mb-5">
               <ThemePreference />
@@ -402,7 +412,7 @@ export default function Workspace() {
                   : "Puedes consultar clientes, préstamos, cobros e informes."}
               </p>
               <p>
-                Los pagos registrados son definitivos. Un préstamo puede
+                Los registros de pago equivocados se corrigen con motivo y auditoría por un administrador. Un préstamo puede
                 liquidarse o refinanciarse conforme a las condiciones acordadas.
               </p>
               <p className="rounded-xl bg-slate-50 p-4">
@@ -424,6 +434,10 @@ export default function Workspace() {
                   ? "general"
                   : section
             }
+            initialBorrowerId={financeIntent.borrowerId}
+            initialLoanId={financeIntent.loanId}
+            onPanel={() => { setSearch(""); navigate("general"); }}
+            onClients={query => { setSearch(query ?? ""); setMemberFilter("todos"); navigate("clientes"); }}
             search={search}
             onSearchChange={setSearch}
           />
@@ -448,23 +462,7 @@ export default function Workspace() {
           />
           <Card className="!p-4">
             <div className="grid items-end gap-4 sm:grid-cols-[1fr_220px]">
-              <label>
-                Buscar cliente
-                <div className="relative">
-                  <Search
-                    size={18}
-                    aria-hidden="true"
-                    className="absolute left-3 top-3.5 text-slate-400"
-                  />
-                  <input
-                    aria-label="Buscar por nombre o DNI"
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Nombre, DNI o stand"
-                    className="pl-10"
-                  />
-                </div>
-              </label>
+              <ClientSearch value={search} onChange={setSearch} label="Buscar cliente" accessibleLabel="Buscar por nombre, DNI o stand" />
               <label>
                 Condición
                 <select
@@ -486,11 +484,20 @@ export default function Workspace() {
           <ClientDirectory
             clients={visible}
             role={role}
+            onDelete={setDeleting}
+            onNewLoan={id => { setFinanceIntent({borrowerId:id}); setSearch(""); setSection("prestamos"); }}
+            onOpenLoan={id => { setFinanceIntent({loanId:id}); setSearch(""); setSection("general"); }}
             onEdit={(client) => {
               setEditing(client);
               setShowForm(true);
             }}
           />
+          {deleting && role === "administrador" && <ClientDeletion key={deleting.id} client={deleting} onClose={() => setDeleting(null)} onDeleted={(id) => {
+            setClients((rows) => rows.filter((row) => row.id !== id));
+            setClientRevision((n) => n + 1);
+            setDeleting(null);
+            if (editing?.id === id) { setEditing(null); setShowForm(false); }
+          }} />}
           <Sheet
             open={showForm && role === "administrador"}
             onOpenChange={setShowForm}
@@ -506,6 +513,27 @@ export default function Workspace() {
                 <legend className="mb-4 text-sm font-semibold text-slate-900">
                   Identificación
                 </legend>
+                <label>
+                  Nombres y apellidos
+                  <input
+                    name="full_name"
+                    defaultValue={editing?.full_name ?? ""}
+                    required
+                    minLength={3}
+                    maxLength={150}
+                  />
+                </label>
+                <label>
+                  DNI
+                  <input
+                    name="dni"
+                    defaultValue={editing?.dni ?? ""}
+                    required
+                    inputMode="numeric"
+                    pattern="[0-9]{8}"
+                    maxLength={8}
+                  />
+                </label>
                 <label>
                   Código de stand
                   <input
@@ -527,27 +555,6 @@ export default function Workspace() {
                     <option value="socio">Socio</option>
                     <option value="trabajador">Trabajador</option>
                   </select>
-                </label>
-                <label>
-                  Nombres y apellidos
-                  <input
-                    name="full_name"
-                    defaultValue={editing?.full_name ?? ""}
-                    required
-                    minLength={3}
-                    maxLength={150}
-                  />
-                </label>
-                <label>
-                  DNI
-                  <input
-                    name="dni"
-                    defaultValue={editing?.dni ?? ""}
-                    required
-                    inputMode="numeric"
-                    pattern="[0-9]{8}"
-                    maxLength={8}
-                  />
                 </label>
               </fieldset>
               <fieldset className="grid gap-5 sm:grid-cols-2">

@@ -89,9 +89,9 @@ test('rechaza fechas inexistentes, plazos inválidos y deuda no segura', () => {
   assert.throws(() => scheduleLoan(100, 0, 2, '9999-12-01'));
 });
 
-test('refinancia capital pendiente con tasa existente sobre capital original desde pago del interés', () => {
+test('refinancia capital pendiente desde el día siguiente al vencimiento con tasa existente', () => {
   const plan = scheduleRefinancing({ originalCapital: 100000, pendingCapital: 81000, pendingInterest: 0,
-    overdueUnpaidInstallments: 0, existingRateBasisPoints: 600, interestSettlementDate: '2026-10-15' });
+    currentPeriodEndDate: '2026-10-14', asOfDate: '2026-10-15', existingRateBasisPoints: 600, interestSettlementDate: '2026-10-15' });
   assert.equal(plan.interestCents, 6000);
   assert.equal(plan.totalCents, 87000);
   assert.equal(plan.startDate, '2026-10-15');
@@ -100,13 +100,13 @@ test('refinancia capital pendiente con tasa existente sobre capital original des
   assert.ok(plan.installments.every(row => row.scheduledCents === 21750));
 });
 
-test('no refinancia deuda liquidada, intereses pendientes ni cuotas vencidas', () => {
+test('no refinancia deuda liquidada, intereses pendientes ni un periodo vigente', () => {
   const input = { originalCapital: 100000, pendingCapital: 81000, pendingInterest: 0,
-    overdueUnpaidInstallments: 0, existingRateBasisPoints: 600, interestSettlementDate: '2026-10-15' };
+    currentPeriodEndDate: '2026-10-14', asOfDate: '2026-10-15', existingRateBasisPoints: 600, interestSettlementDate: '2026-10-15' };
   assert.throws(() => scheduleRefinancing({ ...input, pendingCapital: 0 }));
   assert.throws(() => scheduleRefinancing({ ...input, pendingCapital: 100001 }));
   assert.throws(() => scheduleRefinancing({ ...input, pendingInterest: 1 }));
-  assert.throws(() => scheduleRefinancing({ ...input, overdueUnpaidInstallments: 1 }));
+  assert.throws(() => scheduleRefinancing({ ...input, asOfDate: '2026-10-14' }));
   assert.throws(() => scheduleRefinancing({ ...input, interestSettlementDate: '2026-02-30' }));
 });
 test('rechaza sobrepago, cero, negativos y valores no seguros', () => {
@@ -117,17 +117,19 @@ test('rechaza sobrepago, cero, negativos y valores no seguros', () => {
   assert.throws(() => cents('999999999999999999999'));
 });
 
-test('cuotas vencidas pendientes bloquean refinanciación aun con interés pagado', async () => {
+test('refinanciación exige interés completo y plazo vencido, no cuotas pagadas', async () => {
   const { requireRefinancingPrerequisites } = await import('../src/lib/finance');
-  assert.throws(() => requireRefinancingPrerequisites(0, 1));
-  assert.throws(() => requireRefinancingPrerequisites(1, 0));
-  assert.doesNotThrow(() => requireRefinancingPrerequisites(0, 0));
+  assert.doesNotThrow(() => requireRefinancingPrerequisites(0, '2026-10-14', '2026-10-15'));
+  assert.throws(() => requireRefinancingPrerequisites(1, '2026-10-14', '2026-10-15'));
+  assert.throws(() => requireRefinancingPrerequisites(0, '2026-10-15', '2026-10-15'));
+  assert.throws(() => requireRefinancingPrerequisites(0, '2026-10-16', '2026-10-15'));
+  assert.throws(() => requireRefinancingPrerequisites(0, '2026-02-30', '2026-10-15'));
 });
 
 test('rechaza productos distintos de los autorizados, incluyendo interés de cero',()=>{
  assert.throws(()=>requireApprovedProduct(50000,0,1));
  assert.throws(()=>requireApprovedProduct(50000,600,1));
- assert.throws(()=>requireApprovedProduct(50000,700,2));
+ assert.doesNotThrow(()=>requireApprovedProduct(50000,700,2));
  assert.doesNotThrow(()=>requireApprovedProduct(50000,700,1));
  assert.doesNotThrow(()=>requireApprovedProduct(100000,600,1));
  assert.doesNotThrow(()=>requireApprovedProduct(100000,600,2));
@@ -151,7 +153,7 @@ test('presenta y exporta importes grandes sin perder céntimos',async()=>{
 
 test("S/2000 al 6 % mensual por dos meses: interés 240, total 2240 y ocho cuotas de 280", () => {
   assert.doesNotThrow(() => requireApprovedProduct(200000, 600, 2));
-  assert.throws(() => requireApprovedProduct(200000, 600, 1));
+  assert.doesNotThrow(() => requireApprovedProduct(200000, 600, 1));
   assert.throws(() => requireApprovedProduct(200000, 700, 2));
   const plan = scheduleLoan(200000, 600, 2, "2026-10-10");
   assert.equal(plan.interestCents, 24000);
@@ -160,4 +162,48 @@ test("S/2000 al 6 % mensual por dos meses: interés 240, total 2240 y ocho cuota
   assert.ok(plan.installments.every((i) => i.scheduledCents === 28000));
   assert.equal(plan.installments[0].dueDate, "2026-10-17");
   assert.equal(plan.installments[7].dueDate, "2026-12-05");
+});
+
+
+test('refinanciación respeta el vencimiento previo aunque el interés se pagó antes o la solicitud llegó tarde', () => {
+  const plan = scheduleRefinancing({ originalCapital: 200000, pendingCapital: 190000, pendingInterest: 0, existingRateBasisPoints: 600, interestSettlementDate: '2026-09-15', currentPeriodEndDate: '2026-10-14', asOfDate: '2026-10-20' });
+  assert.equal(plan.startDate, '2026-10-15');
+  assert.equal(plan.endDate, '2026-11-12');
+  assert.equal(plan.interestCents, 12000);
+  assert.deepEqual(plan.installments.map(row => row.scheduledCents), [50500,50500,50500,50500]);
+  assert.equal(plan.installments[0].dueDate, '2026-10-22');
+});
+
+
+test('monto libre positivo asigna tasa automática y conserva céntimos y plazos', async () => {
+ const { monthlyRateForCapital } = await import('../src/lib/finance');
+ for (const [capital,rate] of [[1,700],[25000,700],[49999,700],[50000,700],[50001,600],[100000,600],[150000,600],[200000,600]]) {
+  assert.equal(monthlyRateForCapital(capital),rate);
+  for (const months of [1,2] as const) assert.doesNotThrow(() => requireApprovedProduct(capital,rate,months));
+ }
+ assert.equal(monthlyRateForCapital(49999),700);
+ assert.throws(() => monthlyRateForCapital(0));
+ assert.throws(() => requireApprovedProduct(150000,700,2));
+ assert.throws(() => requireApprovedProduct(150000,600,3));
+ const plan = scheduleLoan(150000,monthlyRateForCapital(150000),2,'2026-10-15');
+ assert.equal(plan.interestCents,18000);
+ assert.equal(plan.totalCents,168000);
+ assert.equal(plan.installments.length,8);
+ assert.ok(plan.installments.every(i => i.scheduledCents === 21000));
+ assert.equal(scheduleLoan(50000,700,2,'2026-10-15').interestCents,7000);
+});
+
+test('refinanciación permite fecha elegida y dos meses con ocho cuotas, sin anticipar el periodo', () => {
+ const input = { originalCapital:100000,pendingCapital:81000,pendingInterest:0,currentPeriodEndDate:'2026-10-14',asOfDate:'2026-10-25',existingRateBasisPoints:600,interestSettlementDate:'2026-10-10',startDate:'2026-10-20',months:2 as const };
+ const plan = scheduleRefinancing(input);
+ assert.equal(plan.startDate,'2026-10-20');
+ assert.equal(plan.endDate,'2026-12-15');
+ assert.equal(plan.interestCents,12000);
+ assert.equal(plan.totalCents,93000);
+ assert.equal(plan.installments.length,8);
+ assert.equal(plan.installments[0].dueDate,'2026-10-27');
+ assert.ok(plan.installments.every(row=>row.scheduledCents===11625));
+ assert.throws(()=>scheduleRefinancing({...input,startDate:'2026-10-14'}));
+ assert.throws(()=>scheduleRefinancing({...input,startDate:'2026-10-26'}));
+ assert.throws(()=>scheduleRefinancing({...input,months:3 as 1}));
 });

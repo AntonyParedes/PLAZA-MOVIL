@@ -2,13 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { financialDatabase as baseDatabase, admin, chief, outsider } from './helpers';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { earlySettlementQuote } from '../src/lib/finance';
 
 async function financialDatabase() {
  const db=await baseDatabase();
  await db.exec('reset role');
- for(const name of ['202610090003_client_stand.sql','202610100004_loan_2000.sql','202611100005_early_settlement.sql']) {
+ for(const name of (await readdir(new URL('../supabase/migrations/',import.meta.url))).filter(n=>n.endsWith('.sql') && n>'202610090002_financial_operations.sql').sort()) {
   await db.exec(await readFile(new URL(`../supabase/migrations/${name}`,import.meta.url),'utf8'));
  }
  await db.exec(`set role authenticated; set request.jwt.claim.sub='${admin}'`);
@@ -86,17 +86,36 @@ test('abonos previos, descuento total, vencimiento y rollback ante cronograma in
 test('cancelación tras refinanciación conserva historial y descuenta solo interés del periodo vigente',async()=>{
  const db=await financialDatabase();
  try {
-  const today=(await db.query<{today:string}>("select ((now() at time zone 'America/Lima')::date)::text today")).rows[0].today;
+  const {today,start,paid}=(await db.query<{today:string;start:string;paid:string}>("select ((now() at time zone 'America/Lima')::date)::text today,((now() at time zone 'America/Lima')::date-40)::text start,((now() at time zone 'America/Lima')::date-20)::text paid")).rows[0];
   const client=(await db.query<{id:string}>("insert into public.clients(stand_code,member_type,full_name,dni,phone,address) values('A-01','socio','Refinanciado','12345678','999999999','Lima centro') returning id")).rows[0].id;
-  const loan=(await db.query<{id:string}>(`select public.create_loan('${randomUUID()}','${client}',100000,600,1,'${today}') id`)).rows[0].id;
+  const loan=(await db.query<{id:string}>(`select public.create_loan('${randomUUID()}','${client}',100000,600,1,'${start}') id`)).rows[0].id;
   const ordinaryRequest=randomUUID();
-  await db.exec(`select public.record_payment('${ordinaryRequest}','${loan}',6000,'${today}')`);
-  await db.exec(`select public.refinance_loan('${randomUUID()}','${loan}')`);
+  await db.exec(`select public.record_payment('${ordinaryRequest}','${loan}',6000,'${paid}')`);
+  await db.exec(`select public.refinance_loan('${randomUUID()}','${loan}','${today}',1)`);
   await db.exec(`select public.record_payment('${randomUUID()}','${loan}',1000,'${today}')`);
   await assert.rejects(db.exec(`select public.settle_loan_early('${ordinaryRequest}','${loan}',6000,3000,'${today}')`),/reutilizada/);
   await db.exec(`select public.settle_loan_early('${randomUUID()}','${loan}',102000,3000,'${today}')`);
   assert.deepEqual((await db.query('select sum(interest_cents)::int interest,sum(capital_cents)::int capital,sum(interest_discount_cents)::int discount from public.payments')).rows[0],{interest:9000,capital:100000,discount:3000});
+  const cash=(await db.query<{summary:{received_cents:string;interest_cents:string}}>('select public.cash_summary() summary')).rows[0].summary;
+  assert.equal(cash.received_cents,'109000');
+  assert.equal(cash.interest_cents,'9000');
+  const earlier=(await db.query<{id:string}>(`select id from public.payments where request_id='${ordinaryRequest}'`)).rows[0].id;
+  const review=(await db.query<{plan:{confirmation_token:string;discounts_supported:boolean}}>(`select public.preview_payment_correction('${earlier}','corregir',6000,'${start}','Corregir fecha del abono') plan`)).rows[0].plan;
+  assert.equal(review.discounts_supported,true);
+  await db.exec(`select public.correct_payment('${randomUUID()}','${earlier}','corregir',6000,'${start}','Corregir fecha del abono','${review.confirmation_token}')`);
+  assert.equal((await db.query<{discount:number}>('select sum(amount_cents)::int discount from public.installment_discounts')).rows[0].discount,3000);
+
   assert.equal((await db.query<{pending:number}>('select sum(pending_cents)::int pending from public.installment_balances where is_current')).rows[0].pending,0);
   assert.equal((await db.query<{discount:number}>('select sum(discounted_cents)::int discount from public.installment_balances where not is_current')).rows[0].discount,0);
+  const target=(await db.query<{id:string}>('select id from public.payments where interest_discount_cents>0')).rows[0].id;
+  const plan=(await db.query<{token:string}>(`select public.preview_payment_correction('${target}','anular',null,null,'Cancelación registrada por error')->>'confirmation_token' token`)).rows[0].token;
+  await db.exec(`select public.correct_payment('${randomUUID()}','${target}','anular',null,null,'Cancelación registrada por error','${plan}')`);
+  assert.deepEqual((await db.query('select capital_pending::int capital,interest_pending::int interest,status from public.loans')).rows[0],{capital:100000,interest:5000,status:'activo'});
+  assert.equal((await db.query('select * from public.installment_discounts')).rows.length,0);
+  await db.exec(`select public.settle_loan_early('${randomUUID()}','${loan}',102000,3000,'${today}')`);
+  const deletion=(await db.query<{token:string}>(`select public.preview_client_deletion('${client}')->>'confirmation_token' token`)).rows[0].token;
+  await db.exec(`select public.delete_client('${client}','12345678','Cliente de prueba erróneo','${deletion}')`);
+  assert.equal((await db.query('select * from public.loans')).rows.length,0);
+
  } finally {await db.close();}
 });

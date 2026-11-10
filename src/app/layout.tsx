@@ -9,7 +9,7 @@ const geist = localFont({
   weight: "100 900",
 });
 export const metadata: Metadata = {
-  title: "PM Créditos",
+  title: "Rapi Créditos",
   description: "Administración de préstamos y cobranzas",
 };
 export default function RootLayout({

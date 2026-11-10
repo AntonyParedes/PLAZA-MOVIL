@@ -1,17 +1,25 @@
 "use client";
 import { EarlySettlement } from "@/components/early-settlement";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { PaymentCorrectionForm, PaymentCorrectionHistory } from "@/components/payment-corrections";
+import LoanApplication from "@/components/loan-application";
+import CashOverview from "@/components/cash-overview";
+import { useLiveRevision } from "@/hooks/use-live-revision";
 import { getSupabase } from "@/lib/supabase";
 import {
   cents,
+  applyPayment,
   decimalSoles,
   formatPEN,
-  loanProducts,
+  monthlyRateForCapital,
   scheduleLoan,
+  scheduleRefinancing,
+  requireRefinancingPrerequisites,
 } from "@/lib/finance";
 import {
   addDays,
   dateLabel,
+  paymentReceived,
   downloadCSV,
   limaDate,
   weekBounds,
@@ -22,6 +30,7 @@ import {
   type Installment,
 } from "@/lib/portal";
 import { collectionStatus, weekdayLabel } from "@/lib/collection-status";
+import { cashSummarySchema, type CashMovement } from "@/lib/cash";
 import { downloadCreditWorkbook } from "@/lib/credit-export";
 import { whatsappReminder } from "@/lib/whatsapp-reminder";
 import { Button } from "@/components/ui/button";
@@ -30,22 +39,13 @@ import {
   Download,
   Plus,
   MessageCircle,
-  Search,
-  Wallet,
-  CircleDollarSign,
-  TrendingUp,
-  Banknote,
-  CalendarDays,
-  Clock3,
-  ArrowUpRight,
-  CheckCircle2,
   ChevronRight,
 } from "lucide-react";
 import {
   Badge,
   Card,
+  ClientSearch,
   DataTable,
-  Kpi,
   LoadingSkeleton,
   Notice,
   PaymentBadge,
@@ -61,6 +61,10 @@ export default function FinancialWorkspace({
   role,
   view = "general",
   clientFocus,
+  initialBorrowerId,
+  initialLoanId,
+  onClients,
+  onPanel,
   search,
   onSearchChange: setSearch,
 }: {
@@ -68,6 +72,10 @@ export default function FinancialWorkspace({
   role: "administrador" | "jefe";
   view?: FinancialView;
   clientFocus?: string;
+  initialBorrowerId?: string;
+  initialLoanId?: string;
+  onClients: (query?: string) => void;
+  onPanel: () => void;
   search: string;
   onSearchChange: (value: string) => void;
 }) {
@@ -78,25 +86,24 @@ export default function FinancialWorkspace({
     installments: Installment[];
   }>({ loans: [], periods: [], payments: [], installments: [] });
   const [loading, setLoading] = useState(true);
+  const [hasData, setHasData] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [revision, setRevision] = useState(0);
-  const tab = view;
+  const liveRevision = useLiveRevision();
+  const tab = view === "prestamos" ? "general" : view;
   const [success, setSuccess] = useState("");
-  const [agendaRange, setAgendaRange] = useState<"hoy" | "semana">("hoy");
   const [stateFilter, setStateFilter] = useState("todos");
   const [memberFilter, setMemberFilter] = useState("todos");
-  const [showNew, setShowNew] = useState(false);
-  const [selected, setSelected] = useState("");
-  const [productId, setProductId] = useState("");
-  const product = loanProducts.find((p) => p.id === productId);
-  const [start, setStart] = useState(limaDate);
+  const [showNew, setShowNew] = useState(Boolean(initialBorrowerId));
+  const [selected, setSelected] = useState(initialLoanId ?? "");
+  const [refinanceDraft, setRefinanceDraft] = useState<{ key: string; start: string; months: 1 | 2 } | null>(null);
   const [paymentAmount, setPaymentAmount] = useState("");
+  const [correctingPayment, setCorrectingPayment] = useState<Payment | null>(null);
+  const registeredPaymentsRef = useRef<HTMLDivElement>(null);
+  const [penaltyDraft, setPenaltyDraft] = useState<{ key: string; amount: string; reason: string } | null>(null);
   const [paidOn, setPaidOn] = useState(limaDate);
-  const [preview, setPreview] = useState<ReturnType<
-    typeof scheduleLoan
-  > | null>(null);
   const mutationLock = useRef(false);
   const requests = useRef(new Map<string, string>());
   useEffect(() => {
@@ -126,13 +133,15 @@ export default function FinancialWorkspace({
             fetchAll,
           ),
         );
-        if (active)
+        if (active) {
           setData({
             loans: loans as Loan[],
             periods: periods as Period[],
             payments: payments as Payment[],
             installments: installments as Installment[],
           });
+          setHasData(true);
+        }
       } catch (e) {
         if (active)
           setError(e instanceof Error ? e.message : "Error de conexión.");
@@ -144,16 +153,31 @@ export default function FinancialWorkspace({
     return () => {
       active = false;
     };
-  }, [revision]);
-  const customer = (loan: Loan) => clients.find((c) => c.id === loan.client_id);
-  const current = (loanId: string) =>
-    data.periods.find((p) => p.loan_id === loanId && p.is_current);
-  const loanById = (id: string) => data.loans.find((l) => l.id === id);
+  }, [revision, liveRevision]);
+  const clientsById = useMemo(() => new Map(clients.map(client => [client.id, client])), [clients]);
+  const loansById = useMemo(() => new Map(data.loans.map(loan => [loan.id, loan])), [data.loans]);
+  const currentPeriodsByLoan = useMemo(() => new Map(data.periods.filter(period => period.is_current).map(period => [period.loan_id, period])), [data.periods]);
+  const customer = (loan: Loan) => clientsById.get(loan.client_id);
+  const current = (loanId: string) => currentPeriodsByLoan.get(loanId);
+  const loanById = (id: string) => loansById.get(id);
+  function refinancingBlock(loan: Loan) {
+    const period = current(loan.id);
+    if (loan.status !== "activo" || loan.capital_pending <= 0) return "Préstamo liquidado";
+    if (!period) return "No se encontró el periodo vigente";
+    try {
+      requireRefinancingPrerequisites(loan.interest_pending, period.end_date, today);
+      if (!period.interest_settled_on) return "Falta confirmar el pago completo del interés";
+      return "";
+    } catch (error) {
+      return error instanceof Error ? error.message : "No se pudo verificar la refinanciación";
+    }
+  }
+
   const matches = (loan: Loan) =>
-    (!clientFocus || loan.client_id === clientFocus) &&
+    (tab === "resumen" || !clientFocus || loan.client_id === clientFocus) &&
     `${customer(loan)?.full_name ?? ""} ${customer(loan)?.dni ?? ""} ${customer(loan)?.stand_code ?? ""}`
       .toLowerCase()
-      .includes(search.toLowerCase());
+      .includes(tab === "resumen" ? "" : search.toLowerCase());
   const loans = data.loans.filter(matches);
   const payments = data.payments.filter((p) =>
     Boolean(loanById(p.loan_id) && matches(loanById(p.loan_id)!)),
@@ -169,13 +193,38 @@ export default function FinancialWorkspace({
     const timer = setInterval(() => setToday(limaDate()), 60000);
     return () => clearInterval(timer);
   }, []);
-  const week = weekBounds(today);
   const selectedLoan = loanById(selected);
   const selectedClient = selectedLoan ? customer(selectedLoan) : undefined;
   const selectedStatus = selectedLoan
     ? collectionStatus(selectedLoan, data.periods, data.installments, today)
     : undefined;
   const selectedPeriod = current(selected);
+  const refinanceKey = `${selected}:${selectedPeriod?.id ?? ""}`;
+  const refinanceStart = refinanceDraft?.key === refinanceKey ? refinanceDraft.start : selectedPeriod ? addDays(selectedPeriod.end_date, 1) : "";
+  const refinanceMonths = refinanceDraft?.key === refinanceKey ? refinanceDraft.months : 1;
+  let refinancePreview: ReturnType<typeof scheduleRefinancing> | null = null;
+  let refinanceError = selectedLoan ? refinancingBlock(selectedLoan) : "";
+  if (selectedLoan && selectedPeriod && !refinanceError) {
+    try {
+      refinancePreview = scheduleRefinancing({ originalCapital: selectedLoan.original_capital, pendingCapital: selectedLoan.capital_pending, pendingInterest: selectedLoan.interest_pending, currentPeriodEndDate: selectedPeriod.end_date, asOfDate: today, existingRateBasisPoints: selectedLoan.rate_basis_points, interestSettlementDate: selectedPeriod.interest_settled_on!, startDate: refinanceStart, months: refinanceMonths });
+    } catch (error) { refinanceError = error instanceof Error ? error.message : "Revisa fecha y plazo de refinanciación"; }
+  }
+
+  const penaltyKey = `${selected}:${selectedPeriod?.id ?? ""}`;
+  const penaltyActive = Boolean(selectedStatus?.requiresSettlement && penaltyDraft?.key === penaltyKey);
+  const settlementBalance = selectedLoan ? BigInt(selectedLoan.capital_pending) + BigInt(selectedLoan.interest_pending) : 0n;
+  let penaltyPreview = 0n;
+  try { if (penaltyActive) penaltyPreview = BigInt(cents(penaltyDraft!.amount)); } catch { /* Validated on confirmation. */ }
+
+  let paymentPreview: ReturnType<typeof applyPayment> | null = null;
+  let paymentValidationError = "";
+  if (paymentAmount && selectedLoan && !penaltyActive) {
+    try { paymentPreview = applyPayment(cents(paymentAmount), selectedLoan.interest_pending, selectedLoan.capital_pending); }
+    catch (cause) { paymentValidationError = cause instanceof Error ? cause.message : "Revisa el importe."; }
+  }
+
+  let possibleDuplicates=0;
+  try { if(paymentAmount) possibleDuplicates=data.payments.filter(p=>p.loan_id===selected&&p.amount_cents===cents(paymentAmount)&&p.paid_on===paidOn).length; } catch { /* The existing amount validation explains invalid input. */ }
   const selectedQuotas = data.installments
     .filter(
       (i) => i.loan_id === selected && i.is_current && i.pending_cents > 0,
@@ -185,16 +234,13 @@ export default function FinancialWorkspace({
     selectedQuotas
       .slice(0, count)
       .reduce((sum, i) => sum + BigInt(i.pending_cents), 0n);
-  const activeClients = new Set(
-    data.loans.filter((l) => l.status === "activo").map((l) => l.client_id),
-  );
   async function mutate(
     name: string,
     args: Record<string, string | number>,
     confirmation: string,
   ) {
-    if (role !== "administrador" || mutationLock.current) return;
-    if (!window.confirm(confirmation)) return;
+    if (role !== "administrador" || mutationLock.current || busy) return false;
+    if (!window.confirm(confirmation)) return false;
     mutationLock.current = true;
     setBusy(true);
     setError("");
@@ -208,7 +254,7 @@ export default function FinancialWorkspace({
       setSuccess(
         name === "settle_loan_early"
           ? "Cancelación anticipada registrada. El préstamo quedó liquidado."
-          : name === "record_payment"
+          : (name === "record_payment" || name === "settle_loan_with_penalty")
           ? "Pago registrado correctamente."
           : name === "refinance_loan"
             ? "Refinanciación registrada. El nuevo periodo ya está disponible."
@@ -217,69 +263,80 @@ export default function FinancialWorkspace({
       requests.current.delete(signature);
       setShowNew(false);
       setPaymentAmount("");
-      setPreview(null);
+      setPenaltyDraft(null);
       setRevision((r) => r + 1);
+      return true;
     } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : "No se pudo completar la operación. Puedes reintentar con los mismos datos.",
-      );
+      const message = e instanceof Error ? e.message : "No se pudo completar la operación. Puedes reintentar con los mismos datos.";
+      if (name === "settle_loan_with_penalty" && /could not find.*function|schema cache/i.test(message)) {
+        setError("Aplica la migración 202611030010_settlement_penalty.sql en Supabase para habilitar la penalidad.");
+        return false;
+      }
+      setError(/cuotas vencidas pendientes|producto de préstamo no autorizado/i.test(message) || (name === "refinance_loan" && /could not find.*function|schema cache/i.test(message))
+        ? "Actualización de Supabase pendiente: la base de datos conserva las reglas anteriores. Aplica la actualización 007 y vuelve a intentarlo."
+        : message);
+      return false;
     } finally {
       mutationLock.current = false;
       setBusy(false);
     }
   }
-  function prepareLoan(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
-    try {
-      if (!product) throw new Error("Selecciona un producto de préstamo.");
-      setPreview(
-        scheduleLoan(product.capital, product.rate, product.months, start),
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Datos inválidos.");
-    }
+  function openLoan(id: string) {
+    setSelected(id);
+    setCorrectingPayment(null);
+    setPaymentAmount("");
+    setPaidOn(limaDate());
+    setPenaltyDraft(null);
+    setError(""); setSuccess("");
   }
-  async function createLoan(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!preview || !product) return;
-    const fields = new FormData(event.currentTarget);
-    await mutate(
-      "create_loan",
-      {
-        p_client: String(fields.get("client")),
-        p_capital: preview.originalCapital,
-        p_rate: product.rate,
-        p_months: product.months,
-        p_start: start,
-      },
-      `¿Desembolsar ${money(preview.originalCapital)} y registrar una deuda total de ${money(preview.totalCents)}? El préstamo no se podrá cancelar ni eliminar.`,
-    );
+  async function createLoan(client: Customer, proposal: ReturnType<typeof scheduleLoan>) {
+    return mutate("create_loan", {
+      p_client: client.id, p_capital: proposal.originalCapital,
+      p_rate: monthlyRateForCapital(proposal.originalCapital),
+      p_months: proposal.installments.length === 8 ? 2 : 1,
+      p_start: addDays(proposal.installments[0].dueDate, -7),
+    }, `¿Desembolsar ${money(proposal.originalCapital)} a ${client.full_name}, DNI ${client.dni}, stand ${client.stand_code}? Interés: ${money(proposal.interestCents)}. Total a cobrar: ${money(proposal.totalCents)} en ${proposal.installments.length} cuotas. Revisa los datos antes de confirmar.`);
   }
   async function pay(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     try {
-      await mutate(
-        "record_payment",
-        { p_loan: selected, p_amount: cents(paymentAmount), p_paid_on: paidOn },
-        `¿Registrar un pago de ${money(cents(paymentAmount))}? Se aplicará primero a intereses y después a capital. No se podrá anular.`,
-      );
+      if (penaltyActive) {
+        const penalty = cents(penaltyDraft!.amount);
+        if (penalty <= 0) throw Error("Ingresa una penalidad mayor que cero o desactiva Penalidad.");
+        if (penaltyDraft!.reason.trim().length < 3 || penaltyDraft!.reason.trim().length > 300) throw Error("Escribe un motivo de 3 a 300 caracteres para la penalidad.");
+        if (settlementBalance + BigInt(penalty) > BigInt(Number.MAX_SAFE_INTEGER)) throw Error("El total está fuera del rango permitido.");
+        await mutate("settle_loan_with_penalty", {
+          p_loan: selected, p_expected_balance: Number(settlementBalance), p_penalty: penalty,
+          p_reason: penaltyDraft!.reason.trim(), p_paid_on: paidOn,
+        }, `¿Liquidar el préstamo de ${selectedClient?.full_name ?? "este cliente"}? Saldo: ${money(settlementBalance)}. Penalidad: ${money(penalty)}. Total a cobrar: ${money(settlementBalance + BigInt(penalty))}. La penalidad se registra por separado. Si hubo un error, un administrador podrá corregirlo con motivo y revisión de saldos.`);
+        return;
+      }
+      if (!selectedLoan) return;
+      const amount = cents(paymentAmount);
+      const distribution = applyPayment(amount, selectedLoan.interest_pending, selectedLoan.capital_pending);
+      await mutate("record_payment", { p_loan: selected, p_amount: amount, p_paid_on: paidOn },
+        `¿Registrar ${money(amount)} de ${selectedClient?.full_name ?? "este cliente"}, DNI ${selectedClient?.dni ?? "por registrar"}? Interés: ${money(distribution.interestPaid)}. Capital: ${money(distribution.capitalPaid)}. Saldo después: ${money(distribution.pendingCapital + distribution.pendingInterest)}. ${possibleDuplicates>0?`ATENCIÓN: ya hay ${possibleDuplicates} pago(s) con este monto y fecha. Confirma solo si es otro cobro real. `:""}Si hubo un error, un administrador podrá corregirlo con motivo y revisión de saldos.`);
+
     } catch (e) {
       setError(e instanceof Error ? e.message : "Monto inválido.");
     }
   }
   function exportReport(kind: string) {
+    if (kind === "penalidades") return downloadCSV("penalidades-pm-creditos.csv", [
+      ["Cliente", "Stand", "Fecha", "Penalidad PEN", "Motivo", "ID pago"],
+      ...payments.filter(p => (p.penalty_cents ?? 0) > 0).map(p => [customer(loanById(p.loan_id)!)?.full_name ?? "", customer(loanById(p.loan_id)!)?.stand_code ?? "", p.paid_on, decimalSoles(p.penalty_cents!), p.penalty_reason ?? "", p.id]),
+    ]);
     if (kind === "pagos")
       downloadCSV("pagos-pm-creditos.csv", [
-        ["Cliente", "Fecha", "Total PEN", "Interés PEN", "Capital PEN", "Descuento de interés PEN"],
+        ["Cliente", "Fecha", "Total PEN", "Interés PEN", "Capital PEN", "Penalidad PEN", "Motivo de penalidad", "Descuento de interés PEN"],
         ...payments.map((p) => [
           customer(loanById(p.loan_id)!)?.full_name ?? "",
           p.paid_on,
-          decimalSoles(p.amount_cents),
+          decimalSoles(paymentReceived(p)),
           decimalSoles(p.interest_cents),
           decimalSoles(p.capital_cents),
+          decimalSoles(p.penalty_cents ?? 0),
+          p.penalty_reason ?? "",
           decimalSoles(p.interest_discount_cents ?? 0),
         ]),
       ]);
@@ -335,20 +392,16 @@ export default function FinancialWorkspace({
           ]),
       ]);
   }
-  const totals = {
-    lent: loans.reduce((n, l) => n + BigInt(l.original_capital), 0n),
-    capital: loans.reduce((n, l) => n + BigInt(l.capital_pending), 0n),
-    interest: payments.reduce((n, p) => n + BigInt(p.interest_cents), 0n),
-    paid: payments.reduce((n, p) => n + BigInt(p.amount_cents), 0n),
-  };
+
   const groups = (key: "semana" | "mes") => {
-    const map = new Map<string, { total: bigint; interest: bigint }>();
+    const map = new Map<string, { total: bigint; interest: bigint; penalty: bigint }>();
     payments.forEach((p) => {
       const date =
         key === "mes" ? p.paid_on.slice(0, 7) : weekBounds(p.paid_on).start;
-      const value = map.get(date) ?? { total: 0n, interest: 0n };
-      value.total += BigInt(p.amount_cents);
+      const value = map.get(date) ?? { total: 0n, interest: 0n, penalty: 0n };
+      value.total += paymentReceived(p);
       value.interest += BigInt(p.interest_cents);
+      value.penalty += BigInt(p.penalty_cents ?? 0);
       map.set(date, value);
     });
     return [...map.entries()].sort(([a], [b]) => b.localeCompare(a));
@@ -396,6 +449,7 @@ export default function FinancialWorkspace({
     "Código stand",
     "Condición",
     "Fecha del préstamo",
+    "N.º de cuotas",
     "Saldo",
     "Cuota semanal",
     "Día de pago",
@@ -403,18 +457,9 @@ export default function FinancialWorkspace({
     "Días de atraso",
     "Refinanciado",
   ];
-  const visibleSchedule = data.installments.filter(
-    (i) =>
-      i.is_current &&
-      Boolean(loanById(i.loan_id) && matches(loanById(i.loan_id)!)),
-  );
-  const agenda = visibleSchedule
-    .filter((i) =>
-      agendaRange === "hoy"
-        ? i.due_date === today
-        : i.due_date >= week.start && i.due_date <= week.end,
-    )
-    .sort((a, b) => a.due_date.localeCompare(b.due_date));
+  const upcomingPeriods=data.periods.filter(p=>p.is_current&&p.end_date>=today&&p.end_date<=addDays(today,7)&&loanById(p.loan_id)?.status==='activo')
+    .sort((a,b)=>a.end_date.localeCompare(b.end_date)||(customer(loanById(a.loan_id)!)?.full_name??'').localeCompare(customer(loanById(b.loan_id)!)?.full_name??''));
+  const overdueCount=data.installments.filter(i=>i.is_current&&i.pending_cents>0&&i.due_date<today&&loanById(i.loan_id)?.status==='activo').length;
   const refinanced = data.periods
     .filter(
       (p) =>
@@ -484,193 +529,8 @@ export default function FinancialWorkspace({
       />
     );
   }
-  function quotaTable(rows: Installment[], includeWhatsapp = false) {
+  function portfolioFilters() {
     return (
-      <DataTable
-        caption="Cronograma de cobros"
-        headers={[
-          "Cliente",
-          "Cuota",
-          "Día de pago",
-          "Programado",
-          "Saldo",
-          "Estado",
-          "Acción",
-        ]}
-        keys={rows.map((i) => i.id)}
-        rows={rows.map((i) => {
-          const l = loanById(i.loan_id)!;
-          const c = customer(l);
-          const text = c
-            ? whatsappReminder(c, l, i, data.periods, data.installments, today)
-            : "";
-          return [
-            customerCell(l),
-            i.number,
-            <div key="date">
-              <p className="capitalize">{weekdayLabel(i.due_date)}</p>
-              <p className="mt-1 text-xs text-slate-500">
-                {dateLabel(i.due_date)}
-              </p>
-            </div>,
-            money(i.scheduled_cents),
-            money(i.pending_cents),
-            quotaBadge(i),
-            <div key="actions" className="flex flex-wrap justify-end gap-2">
-              <Button variant="outline" onClick={() => setSelected(l.id)}>
-                {i.pending_cents > 0 && role === "administrador"
-                  ? "Registrar pago"
-                  : "Ver préstamo"}
-              </Button>
-              {includeWhatsapp && c && i.pending_cents > 0 && (
-                <Button asChild variant="outline">
-                  <a
-                    aria-label={`Recordar pago a ${c.full_name} por WhatsApp`}
-                    href={`https://wa.me/51${c.phone}?text=${encodeURIComponent(text)}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <MessageCircle size={16} />
-                    <span className="sr-only lg:not-sr-only">WhatsApp</span>
-                  </a>
-                </Button>
-              )}
-            </div>,
-          ];
-        })}
-        emptyTitle={
-          agendaRange === "hoy"
-            ? "Sin cobros programados para hoy"
-            : "Sin cuotas para este rango"
-        }
-        emptyDescription="Consulta esta semana o ajusta los filtros para revisar el cronograma."
-      />
-    );
-  }
-  function exportGeneral() {
-    downloadCSV("panel-general.csv", [
-      generalExportHeaders,
-      ...generalEntries.map(({ client, status }) => [
-        client?.full_name ?? "",
-        client?.stand_code ?? "Por registrar",
-        client?.member_type ?? "Por registrar",
-        status.startDate ?? "",
-        decimalSoles(status.balance),
-        decimalSoles(status.weeklyCents),
-        status.nextDate ?? "",
-        status.state === "Atrasado"
-          ? `Se atrasó ${status.daysLate} días`
-          : status.state,
-        status.daysLate,
-        status.refinanced ? "Sí" : "No",
-      ]),
-    ]);
-  }
-  async function exportExcel(kind = "todos") {
-    if (exporting) return;
-    setExporting(true);
-    setError("");
-    try {
-      let selectedIds = loans
-        .filter((l) => kind === "todos" || l.status === kind)
-        .map((l) => l.id);
-      if (kind === "general")
-        selectedIds = generalEntries.map((e) => e.loan.id);
-      if (kind === "pagos") selectedIds = payments.map((p) => p.loan_id);
-      if (kind === "vencidos")
-        selectedIds = installments
-          .filter((i) => i.due_date < today)
-          .map((i) => i.loan_id);
-      if (kind === "refinanciaciones")
-        selectedIds = refinanced.map((p) => p.loan_id);
-      await downloadCreditWorkbook(
-        {
-          clients,
-          ...data,
-          today,
-          selectedLoanIds: [...new Set(selectedIds)],
-          description: `Selección: ${kind}. Búsqueda: ${search || "todos"}. Incluye el historial completo de los préstamos seleccionados.`,
-        },
-        `pm-creditos-${kind}.xlsx`,
-      );
-      setSuccess(
-        "Excel descargado. Incluye cartera, cuotas, pagos y refinanciaciones.",
-      );
-    } catch {
-      setError("No se pudo generar el Excel. Inténtalo nuevamente.");
-    } finally {
-      setExporting(false);
-    }
-  }
-  if (loading && revision === 0) return <LoadingSkeleton />;
-  return (
-    <section className="space-y-6" aria-busy={loading}>
-      {loading && (
-        <p role="status" className="text-sm text-blue-700">
-          Actualizando saldos…
-        </p>
-      )}
-      {error && <Notice error>{error}</Notice>}
-      {success && <Notice>{success}</Notice>}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight">
-            {
-              {
-                general: "Una vista completa de tu cartera",
-                resumen: "Tu cartera, de un vistazo",
-                prestamos: "Gestiona tus préstamos",
-                refinanciaciones: "Refinanciaciones e historial",
-                reportes: "Informes para tomar decisiones",
-              }[tab]
-            }
-          </h2>
-          <p className="mt-2 text-sm text-slate-500">
-            {tab === "resumen"
-              ? "Supervisa los saldos y prioriza los cobros del día."
-              : "Consulta, filtra y encuentra la información que necesitas."}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            disabled={exporting || loading}
-            onClick={() => exportExcel(tab === "general" ? "general" : "todos")}
-          >
-            <Download size={16} />
-            {exporting ? "Generando Excel…" : "Exportar Excel completo"}
-          </Button>{" "}
-          <Button
-            variant="outline"
-            onClick={() => setRevision((r) => r + 1)}
-            disabled={busy}
-          >
-            <RefreshCw size={16} /> Actualizar
-          </Button>
-        </div>
-      </div>
-      <Card className="!p-4">
-        <div className="max-w-xl">
-          <label>
-            Buscar cliente / DNI / stand
-            <div className="relative">
-              <Search
-                size={17}
-                className="absolute left-3 top-3.5 text-slate-400"
-                aria-hidden="true"
-              />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Nombre, DNI o stand"
-                className="pl-10"
-              />
-            </div>
-          </label>
-        </div>
-      </Card>
-      {tab === "general" && (
-        <>
-          <div className="flex flex-wrap items-end justify-between gap-4">
             <div className="flex flex-wrap gap-3">
               <label>
                 Condición
@@ -703,9 +563,138 @@ export default function FinancialWorkspace({
                 </select>
               </label>
             </div>
-            <Button variant="outline" onClick={exportGeneral}>
-              <Download size={16} /> Exportar panel CSV
-            </Button>
+    );
+  }
+  function exportGeneral() {
+    downloadCSV("panel-general.csv", [
+      generalExportHeaders,
+      ...generalEntries.map(({ client, status }) => [
+        client?.full_name ?? "",
+        client?.stand_code ?? "Por registrar",
+        client?.member_type ?? "Por registrar",
+        status.startDate ?? "",
+        status.originalInstallments ?? "",
+        decimalSoles(status.balance),
+        decimalSoles(status.weeklyCents),
+        status.nextDate ?? "",
+        status.state === "Atrasado"
+          ? `Se atrasó ${status.daysLate} días`
+          : status.state,
+        status.daysLate,
+        status.refinanced ? "Sí" : "No",
+      ]),
+    ]);
+  }
+  async function exportExcel(kind = "todos") {
+    if (exporting) return;
+    setExporting(true);
+    setError("");
+    try {
+      let selectedIds = loans
+        .filter((l) => kind === "todos" || l.status === kind)
+        .map((l) => l.id);
+      if (kind === "general")
+        selectedIds = generalEntries.map((e) => e.loan.id);
+      if (kind === "pagos") selectedIds = payments.map((p) => p.loan_id);
+      if (kind === "penalidades") selectedIds = payments.filter(p => (p.penalty_cents ?? 0) > 0).map(p => p.loan_id);
+      if (kind === "vencidos")
+        selectedIds = installments
+          .filter((i) => i.due_date < today)
+          .map((i) => i.loan_id);
+      if (kind === "refinanciaciones")
+        selectedIds = refinanced.map((p) => p.loan_id);
+      const cashResult = await supabase!.rpc("cash_summary");
+      if (cashResult.error) throw Error("No se pudo consultar la caja. Revisa la conexión y vuelve a exportar.");
+      const cashSummary = cashSummarySchema.parse(cashResult.data);
+      const cashMovements: CashMovement[] = [];
+      for (let offset = 0; ; offset += 1000) {
+        const result = await supabase!.from("cash_movements").select("id,kind,amount_cents,note,created_at").order("created_at").order("id").range(offset, offset + 999);
+        if (result.error) throw Error("No se pudieron consultar los movimientos de caja. Vuelve a exportar.");
+        cashMovements.push(...result.data as CashMovement[]);
+        if (result.data.length < 1000) break;
+      }
+      await downloadCreditWorkbook(
+        {
+          clients,
+          ...data,
+          today,
+          cashSummary,
+          cashMovements,
+          selectedLoanIds: [...new Set(selectedIds)],
+          description: `Selección: ${kind}. Búsqueda: ${search || "todos"}. Incluye el historial completo de los préstamos seleccionados.`,
+        },
+        `pm-creditos-${kind}.xlsx`,
+      );
+      setSuccess(
+        "Excel descargado. Separa préstamos activos y liquidados e incluye pagos, penalidades, refinanciaciones y el resumen de caja y ganancias.",
+      );
+    } catch (cause) {
+      setError(cause instanceof Error && cause.message.startsWith("No se pud") ? cause.message : "No se pudo generar el Excel. Inténtalo nuevamente.");
+    } finally {
+      setExporting(false);
+    }
+  }
+  if (loading && !hasData) return <LoadingSkeleton />;
+  return (
+    <section className={tab === "resumen" ? "home-screen space-y-6" : "space-y-6"} aria-busy={loading}>
+      {loading && (
+        <p role="status" className="sr-only">
+          Actualizando saldos…
+        </p>
+      )}
+      {error && <Notice error>{error}{error.startsWith("Actualización de Supabase pendiente") && <p className="mt-2"><a className="font-semibold underline" href="https://github.com/AntonyParedes/PLAZA-MOVIL/blob/mejora/experiencia-navegacion/supabase/migrations/202610150007_refinance_date_and_term.sql" target="_blank" rel="noreferrer">Abrir actualización SQL 007</a></p>}</Notice>}
+      {success && <Notice>{success}</Notice>}
+      <div className="page-intro flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight">
+            {
+              {
+                general: "Tu cobranza semanal",
+                resumen: "Mi cartera.",
+                prestamos: "Gestiona tus préstamos",
+                refinanciaciones: "Refinanciaciones e historial",
+                reportes: "Informes para tomar decisiones",
+              }[tab]
+            }
+          </h2>
+          {tab !== "resumen" && <p className="mt-2 text-sm text-slate-500">
+            {tab === "general"
+                ? "Identifica quién debe pagar y abre su nombre para enviar un recordatorio."
+                : tab === "refinanciaciones"
+                    ? "Revisa las condiciones y consulta los periodos refinanciados."
+                    : "Descarga la información completa de tu cartera y movimientos."}
+          </p>}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {tab === "reportes" && <Button
+            disabled={exporting || loading}
+            onClick={() => exportExcel("todos")}
+          >
+            <Download size={16} />
+            {exporting ? "Generando Excel…" : "Exportar Excel completo"}
+          </Button>}
+          <Button
+            variant="outline"
+            onClick={() => setRevision((r) => r + 1)}
+            disabled={busy}
+          >
+            <RefreshCw size={16} /> Actualizar
+          </Button>
+        </div>
+      </div>
+      {tab !== "resumen" && <Card className="search-panel !p-0">
+        <div className="max-w-xl">
+          <ClientSearch value={search} onChange={setSearch} />
+        </div>
+      </Card>}
+      {tab === "general" && (
+        <>
+          {view === "prestamos" && <SectionHeading title="Cartera de préstamos" description="Saldo, cuota semanal y estado de cada prestatario." action={role === "administrador" && <Button disabled={busy || loading} onClick={() => { setShowNew(true); setError(""); setSuccess(""); }}><Plus size={16} /> Nuevo préstamo</Button>} />}
+          {view === "prestamos" && showNew && role === "administrador" && <Card>
+            <LoanApplication clients={clients} activeLoans={data.loans.filter(l => l.status === "activo")} busy={busy} loading={loading} initialBorrowerId={initialBorrowerId} submissionError={error} onClearError={() => setError("")} onSubmit={createLoan} onClients={onClients} onOpenLoan={id => { setShowNew(false); openLoan(id); }} onCancel={() => setShowNew(false)} />
+          </Card>}
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            {portfolioFilters()}
           </div>
           <p className="text-xs text-slate-500">
             {generalEntries.length} préstamos · Saldo: capital e intereses
@@ -717,6 +706,7 @@ export default function FinancialWorkspace({
             headers={[
               "Prestatario",
               "Fecha del préstamo",
+              "N.º de cuotas",
               "Día de pago",
               "Saldo",
               "Cuota semanal",
@@ -737,7 +727,7 @@ export default function FinancialWorkspace({
                   key="name"
                   type="button"
                   aria-label={`Ver detalle de ${client?.full_name ?? "prestatario"}`}
-                  onClick={() => setSelected(loan.id)}
+                  onClick={() => openLoan(loan.id)}
                   className="min-h-11 rounded-lg border-l-4 px-3 text-left font-semibold text-slate-900 hover:bg-slate-50"
                   style={{
                     borderColor: ["En mora", "Liquidación urgente"].includes(
@@ -752,6 +742,7 @@ export default function FinancialWorkspace({
                   {client?.full_name ?? "Cliente no disponible"}
                 </button>,
                 status.startDate ? dateLabel(status.startDate) : "—",
+                status.originalInstallments ?? "—",
                 <div key="day" className="space-y-2">
                   <span className="capitalize">
                     {paymentDate ? weekdayLabel(paymentDate) : "—"}
@@ -778,327 +769,20 @@ export default function FinancialWorkspace({
       )}
       {tab === "resumen" && (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Kpi
-              label="Capital prestado"
-              value={money(totals.lent)}
-              note="Capital original desembolsado"
-              icon={Wallet}
-            />
-            <Kpi
-              label="Capital pendiente"
-              value={money(totals.capital)}
-              note="Capital por recuperar"
-              tone="purple"
-              icon={CircleDollarSign}
-            />
-            <Kpi
-              label="Total cobrado"
-              value={money(totals.paid)}
-              note="Capital e intereses recibidos"
-              icon={Banknote}
-              tone="green"
-            />
-            <Kpi
-              label="Intereses cobrados"
-              value={money(totals.interest)}
-              note="Interés recibido en pagos"
-              icon={TrendingUp}
-              tone="green"
-            />
-            <Kpi
-              label="Cobros del día"
-              value={money(
-                payments
-                  .filter((p) => p.paid_on === today)
-                  .reduce((n, p) => n + BigInt(p.amount_cents), 0n),
-              )}
-              note="Pagos registrados hoy"
-              icon={CalendarDays}
-              tone="green"
-            />
-            <Kpi
-              label="Cuotas vencidas"
-              value={installments.filter((i) => i.due_date < today).length}
-              note="Cuotas con saldo pendiente"
-              icon={Clock3}
-              tone="red"
-            />
-            <Kpi
-              label="Préstamos activos"
-              value={loans.filter((l) => l.status === "activo").length}
-              note="Créditos vigentes en cartera"
-              icon={ArrowUpRight}
-            />
-            <Kpi
-              label="Préstamos liquidados"
-              value={loans.filter((l) => l.status === "liquidado").length}
-              note="Créditos pagados en su totalidad"
-              icon={CheckCircle2}
-              tone="green"
-            />
-          </div>
-          <div>
-            <SectionHeading
-              title="Cobros de hoy y esta semana"
-              description="Identifica las cuotas pagadas, pendientes y vencidas."
-              action={
-                <div className="flex gap-2">
-                  <Button
-                    variant={agendaRange === "hoy" ? "default" : "outline"}
-                    onClick={() => setAgendaRange("hoy")}
-                  >
-                    Hoy
-                  </Button>
-                  <Button
-                    variant={agendaRange === "semana" ? "default" : "outline"}
-                    onClick={() => setAgendaRange("semana")}
-                  >
-                    Esta semana
-                  </Button>
-                </div>
-              }
-            />
-            {quotaTable(agenda, true)}
-          </div>
-          <div className="grid gap-5 lg:grid-cols-3">
-            {[
-              [
-                "Vencen mañana",
-                installments.filter((i) => i.due_date === addDays(today, 1)),
-              ],
-              [
-                "Pendientes de esta semana",
-                installments.filter(
-                  (i) => i.due_date >= week.start && i.due_date <= week.end,
-                ),
-              ],
-              [
-                "Próximos vencimientos",
-                installments.filter(
-                  (i) => i.due_date > today && i.due_date <= addDays(today, 7),
-                ),
-              ],
-            ].map(([title, rows]) => (
-              <Card key={title as string}>
-                <SectionHeading title={title as string} />
-                {(rows as Installment[]).length === 0 ? (
-                  <p className="text-sm text-slate-500">
-                    Sin cuotas pendientes.
-                  </p>
-                ) : (
-                  (rows as Installment[]).map((i) => (
-                    <button
-                      key={i.id}
-                      onClick={() => setSelected(i.loan_id)}
-                      className="mb-2 flex min-h-14 w-full items-center justify-between gap-3 rounded-lg border-b border-slate-100 py-3 text-left hover:bg-slate-50"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium">
-                          {customer(loanById(i.loan_id)!)?.full_name}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {dateLabel(i.due_date)}
-                        </p>
-                      </div>
-                      <span className="shrink-0 text-sm font-semibold">
-                        {money(i.pending_cents)}
-                      </span>
-                    </button>
-                  ))
-                )}
-              </Card>
-            ))}
-          </div>
-          <Card>
-            <SectionHeading
-              title="Préstamos próximos a finalizar"
-              description="Periodos que terminan en los próximos siete días."
-            />
-            {data.periods
-              .filter(
-                (p) =>
-                  p.is_current &&
-                  p.end_date >= today &&
-                  p.end_date <= addDays(today, 7) &&
-                  loanById(p.loan_id)?.status === "activo" &&
-                  matches(loanById(p.loan_id)!),
-              )
-              .map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => setSelected(p.loan_id)}
-                  className="flex min-h-11 w-full items-center justify-between gap-4 border-b border-slate-100 py-3 text-left text-sm"
-                >
-                  <span>{customer(loanById(p.loan_id)!)?.full_name}</span>
-                  <span className="text-slate-500">
-                    {dateLabel(p.end_date)}
-                  </span>
-                </button>
-              ))}
-            {!data.periods.some(
-              (p) =>
-                p.is_current &&
-                p.end_date >= today &&
-                p.end_date <= addDays(today, 7) &&
-                loanById(p.loan_id)?.status === "activo" &&
-                matches(loanById(p.loan_id)!),
-            ) && (
-              <p className="text-sm text-slate-500">
-                No hay periodos por finalizar en este rango.
-              </p>
-            )}
-          </Card>
-        </>
-      )}
-      {tab === "prestamos" && (
-        <>
-          <SectionHeading
-            title="Cartera de préstamos"
-            description={`${loans.length} préstamos encontrados`}
-            action={
-              role === "administrador" && (
-                <Button
-                  onClick={() => {
-                    setShowNew(!showNew);
-                    setPreview(null);
-                  }}
-                >
-                  <Plus size={16} /> Nuevo préstamo
-                </Button>
-              )
-            }
-          />
-          {showNew && role === "administrador" && (
-            <Card>
-              <SectionHeading
-                title="Preparar préstamo"
-                description="Selecciona el producto y revisa las cuotas antes de confirmar."
-                action={
-                  <Button variant="outline" onClick={() => setShowNew(false)}>
-                    Cancelar
-                  </Button>
-                }
-              />
-              <form
-                onSubmit={prepareLoan}
-                className="grid gap-5 sm:grid-cols-2"
-              >
-                <label>
-                  Producto de préstamo
-                  <select
-                    aria-label="Producto de préstamo"
-                    required
-                    value={productId}
-                    onChange={(e) => {
-                      setProductId(e.target.value);
-                      setPreview(null);
-                    }}
-                  >
-                    <option value="">Selecciona un producto autorizado</option>
-                    {loanProducts.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Fecha del préstamo
-                  <input
-                    type="date"
-                    max={today}
-                    value={start}
-                    onChange={(e) => {
-                      setStart(e.target.value);
-                      setPreview(null);
-                    }}
-                    required
-                  />
-                </label>
-                <div>
-                  <Button type="submit" variant="outline">
-                    Revisar cronograma
-                  </Button>
-                </div>
-              </form>
-              {preview && (
-                <div className="mt-6 space-y-5 border-t border-slate-100 pt-6">
-                  <div className="rounded-xl bg-blue-50 p-5 text-sm leading-7">
-                    Capital: {money(preview.originalCapital)} · Interés:{" "}
-                    {money(preview.interestCents)} · Total:{" "}
-                    <strong>{money(preview.totalCents)}</strong>
-                  </div>
-                  <ul className="grid gap-2 sm:grid-cols-2">
-                    {preview.installments.map((i) => (
-                      <li
-                        key={i.number}
-                        className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm"
-                      >
-                        Cuota {i.number} · {dateLabel(i.dueDate)} ·{" "}
-                        {money(i.scheduledCents)}
-                      </li>
-                    ))}
-                  </ul>
-                  <form onSubmit={createLoan} className="space-y-4">
-                    <label>
-                      Cliente
-                      <select name="client" required>
-                        <option value="">
-                          Selecciona un cliente identificado sin préstamo activo
-                        </option>
-                        {clients
-                          .filter(
-                            (c) =>
-                              !activeClients.has(c.id) &&
-                              c.stand_code &&
-                              c.member_type,
-                          )
-                          .map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.full_name} · stand {c.stand_code} ·{" "}
-                              {c.member_type}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                    <Button disabled={busy} type="submit">
-                      {busy ? "Registrando…" : "Confirmar desembolso"}
-                    </Button>
-                  </form>
-                </div>
-              )}
-            </Card>
-          )}
-          <DataTable
-            caption="Cartera de préstamos"
-            headers={[
-              "Cliente",
-              "Original",
-              "Capital pendiente",
-              "Interés pendiente",
-              "Estado",
-              "Detalle",
-            ]}
-            keys={loans.map((l) => l.id)}
-            rows={loans.map((l) => [
-              customerCell(l),
-              money(l.original_capital),
-              money(l.capital_pending),
-              money(l.interest_pending),
-              <PaymentBadge key="status" status={l.status} />,
-              <Button
-                key="open"
-                variant="outline"
-                onClick={() => setSelected(l.id)}
-              >
-                Abrir
-                <ChevronRight size={14} />
-              </Button>,
-            ])}
-            emptyTitle="Sin préstamos para estos filtros"
-            emptyDescription="Selecciona Nuevo préstamo para preparar un desembolso o cambia la búsqueda."
-          />
+          <CashOverview role={role} loans={data.loans} payments={data.payments} today={today} refreshRevision={revision} />
+          <section className="home-upcoming" aria-labelledby="upcoming-title">
+            <header className="home-upcoming-heading"><div><h3 id="upcoming-title">Próximos vencimientos</h3><p>Fechas de cierre del plazo · próximos 7 días</p></div><button type="button" className="home-text-action" onClick={onPanel}>Ver panel</button></header>
+            {upcomingPeriods.length===0 ? <p className="home-empty">No hay periodos por finalizar en este rango.</p> : <ul className="home-upcoming-list">{upcomingPeriods.slice(0,3).map(p=>{
+              const client=customer(loanById(p.loan_id)!);
+              const days=Math.round((Date.parse(`${p.end_date}T00:00:00Z`)-Date.parse(`${today}T00:00:00Z`))/86400000);
+              return <li key={p.id}><button type="button" onClick={()=>openLoan(p.loan_id)} aria-label={`Ver préstamo de ${client?.full_name ?? 'cliente'}, vence ${dateLabel(p.end_date)}`}>
+                <span className="home-due-date"><strong>{p.end_date.slice(8,10)}</strong><span>{new Intl.DateTimeFormat('es-PE',{month:'short',timeZone:'UTC'}).format(new Date(`${p.end_date}T00:00:00Z`))}</span></span>
+                <span className="home-due-person"><strong>{client?.full_name ?? 'Cliente no disponible'}</strong><small>Stand {client?.stand_code ?? 'por registrar'} · {client?.member_type ?? 'por registrar'}</small></span>
+                <span className="home-due-meta"><strong>{days===0?'Vence hoy':days===1?'Mañana':`En ${days} días`}</strong><small>Fin del plazo</small></span>
+              </button></li>;
+            })}</ul>}
+            <div className="home-collection-link"><span>{overdueCount>0?<span className="home-attention">{overdueCount} {overdueCount===1?'cuota vencida':'cuotas vencidas'} con saldo</span>:'Sin cuotas vencidas con saldo'}</span><button type="button" className="home-text-action" onClick={onPanel}>Revisar cobranza en el panel</button></div>
+          </section>
         </>
       )}
       {tab === "refinanciaciones" && (
@@ -1114,27 +798,19 @@ export default function FinancialWorkspace({
             rows={loans
               .filter((l) => l.status === "activo")
               .map((l) => {
-                const overdue = data.installments.some(
-                  (i) =>
-                    i.loan_id === l.id &&
-                    i.is_current &&
-                    i.due_date < today &&
-                    i.pending_cents > 0,
-                );
+                const block = refinancingBlock(l);
                 return [
                   customerCell(l),
                   money(BigInt(l.capital_pending) + BigInt(l.interest_pending)),
-                  l.interest_pending > 0 ? (
-                    <Badge tone="warning">Interés pendiente</Badge>
-                  ) : overdue ? (
-                    <Badge tone="danger">Cuotas vencidas</Badge>
+                  block ? (
+                    <Badge tone="warning">{l.interest_pending > 0 ? "Interés pendiente" : block.includes("periodo aún") ? "Periodo vigente" : "No disponible"}</Badge>
                   ) : (
-                    <Badge tone="success">Revisar refinanciación</Badge>
+                    <Badge tone="success">Puede refinanciar</Badge>
                   ),
                   <Button
                     key="open"
                     variant="outline"
-                    onClick={() => setSelected(l.id)}
+                    onClick={() => openLoan(l.id)}
                   >
                     Ver préstamo
                   </Button>,
@@ -1146,12 +822,7 @@ export default function FinancialWorkspace({
           <SectionHeading
             title="Historial de refinanciaciones"
             action={
-              <Button
-                variant="outline"
-                onClick={() => exportReport("refinanciaciones")}
-              >
-                <Download size={16} /> Refinanciaciones CSV
-              </Button>
+              <span className="text-xs text-slate-500">Exportación disponible en Reportes</span>
             }
           />
           <DataTable
@@ -1176,7 +847,7 @@ export default function FinancialWorkspace({
               <Button
                 key="open"
                 variant="outline"
-                onClick={() => setSelected(p.loan_id)}
+                onClick={() => openLoan(p.loan_id)}
               >
                 Abrir
               </Button>,
@@ -1188,6 +859,14 @@ export default function FinancialWorkspace({
       )}
       {tab === "reportes" && (
         <>
+          <Card>
+            <SectionHeading title="Registro de penalidades" description="Cobros adicionales realizados al liquidar, separados del capital y del interés." action={<div className="flex flex-wrap gap-2"><Button variant="outline" disabled={loading} onClick={() => exportReport("penalidades")}>Penalidades CSV</Button><Button disabled={loading || exporting} onClick={() => exportExcel("penalidades")}>Penalidades Excel</Button></div>} />
+            <DataTable caption="Registro de penalidades" headers={["Cliente", "Fecha", "Penalidad cobrada", "Motivo", "Préstamo"]} keys={payments.filter(p => (p.penalty_cents ?? 0) > 0).map(p => p.id)} rows={payments.filter(p => (p.penalty_cents ?? 0) > 0).map(p => [customerCell(loanById(p.loan_id)!), dateLabel(p.paid_on), money(p.penalty_cents!), p.penalty_reason ?? "", <Button key="open" variant="outline" onClick={() => openLoan(p.loan_id)}>Ver préstamo</Button>])} emptyTitle="Sin penalidades registradas" emptyDescription="Aquí aparecerán únicamente las penalidades cobradas al liquidar un préstamo." />
+          </Card>
+          <Card>
+            <SectionHeading title="Panel de cobranza" description="Exporta activos y liquidados por separado, con capital devuelto, intereses y penalidades." action={<div className="flex flex-wrap gap-2"><Button disabled={loading || exporting} onClick={() => exportExcel("general")}><Download size={16} /> Panel de cobranza Excel</Button><Button variant="outline" onClick={exportGeneral}><Download size={16} /> Exportar panel CSV</Button></div>} />
+            {portfolioFilters()}
+          </Card>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {[
               [
@@ -1251,11 +930,12 @@ export default function FinancialWorkspace({
                     variant="outline"
                     onClick={() =>
                       downloadCSV(`cobros-${key}.csv`, [
-                        [key, "Cobrado PEN", "Intereses cobrados PEN"],
+                        [key, "Cobrado PEN", "Intereses cobrados PEN", "Penalidades cobradas PEN"],
                         ...groups(key).map(([date, value]) => [
                           date,
                           decimalSoles(value.total),
                           decimalSoles(value.interest),
+                          decimalSoles(value.penalty),
                         ]),
                       ])
                     }
@@ -1266,7 +946,7 @@ export default function FinancialWorkspace({
               />
               <DataTable
                 caption={`Cobros por ${key}`}
-                headers={["Periodo", "Total cobrado", "Intereses cobrados"]}
+                headers={["Periodo", "Total cobrado", "Intereses cobrados", "Penalidades cobradas"]}
                 keys={groups(key).map(([date]) => date)}
                 rows={groups(key).map(([date, value]) => [
                   key === "semana"
@@ -1278,6 +958,7 @@ export default function FinancialWorkspace({
                       }).format(new Date(`${date}-01T00:00:00Z`)),
                   money(value.total),
                   money(value.interest),
+                  money(value.penalty),
                 ])}
                 emptyTitle="Sin cobros para este periodo"
                 emptyDescription="Los pagos registrados aparecerán agrupados aquí."
@@ -1289,7 +970,7 @@ export default function FinancialWorkspace({
       <Sheet
         open={Boolean(selectedLoan)}
         onOpenChange={(open) => {
-          if (!open) setSelected("");
+          if (!open) { setSelected(""); setPenaltyDraft(null); }
         }}
         title={
           selectedLoan
@@ -1300,19 +981,25 @@ export default function FinancialWorkspace({
       >
         {selectedLoan && (
           <div className="space-y-6">
-            {error && <Notice error>{error}</Notice>}
+            {error && <Notice error>{error}{error.startsWith("Actualización de Supabase pendiente") && <p className="mt-2"><a className="font-semibold underline" href="https://github.com/AntonyParedes/PLAZA-MOVIL/blob/mejora/experiencia-navegacion/supabase/migrations/202610150007_refinance_date_and_term.sql" target="_blank" rel="noreferrer">Abrir actualización SQL 007</a></p>}</Notice>}
             {success && <Notice>{success}</Notice>}
             {selectedStatus?.requiresSettlement && (
               <Notice error>
-                Liquidación urgente: el plazo terminó el{" "}
-                {dateLabel(selectedStatus.termEndDate!)}. Debe liquidar el 100 %
-                del Saldo: {money(selectedStatus.balance)}.
+                El plazo terminó el {dateLabel(selectedStatus.termEndDate!)}.
+                Saldo: {money(selectedStatus.balance)}. Puedes liquidar el préstamo
+                o refinanciarlo cuando el interés esté completamente pagado.
               </Notice>
             )}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <PaymentBadge status={selectedLoan.status} />
               {statusBadge(selectedLoan)}
             </div>
+            <div className="workflow-person rounded-xl bg-[var(--accent-soft)] p-4 text-sm">
+              <p>DNI {selectedClient?.dni ?? "—"} · Stand {selectedClient?.stand_code ?? "por registrar"} · {selectedClient?.member_type ?? "Condición por registrar"}</p>
+              <div className="mt-3 flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs">Saldo del préstamo</p><p className="mt-1 text-2xl font-semibold tabular-nums">{money(settlementBalance)}</p></div><p className="text-xs">Fin del plazo: {selectedPeriod ? dateLabel(selectedPeriod.end_date) : "Por verificar"}</p></div>
+            </div>
+            <details className="rounded-xl border border-slate-200 p-4">
+              <summary className="min-h-11 py-2 text-sm font-semibold">Datos del cliente y contrato</summary>
             <dl className="grid gap-3 rounded-2xl bg-slate-50 p-4 text-sm sm:grid-cols-2">
               {[
                 ["Código stand", selectedClient?.stand_code ?? "Por registrar"],
@@ -1346,6 +1033,7 @@ export default function FinancialWorkspace({
                 </div>
               ))}
             </dl>
+            </details>
             {selectedClient &&
               selectedQuotas[0] &&
               /^9\d{8}$/.test(selectedClient.phone) && (
@@ -1397,9 +1085,10 @@ export default function FinancialWorkspace({
                             disabled={
                               busy || loading || selectedQuotas.length < count
                             }
-                            onClick={() =>
-                              setPaymentAmount(decimalSoles(quotaAmount(count)))
-                            }
+                            onClick={() => {
+                              setPenaltyDraft(null);
+                              setPaymentAmount(decimalSoles(quotaAmount(count)));
+                            }}
                           >
                             Pagar {count} {count === 1 ? "cuota" : "cuotas"}
                           </Button>
@@ -1407,17 +1096,19 @@ export default function FinancialWorkspace({
                         <Button
                           type="button"
                           variant="outline"
-                          onClick={() =>
-                            setPaymentAmount(
-                              decimalSoles(
-                                BigInt(selectedLoan.capital_pending) +
-                                  BigInt(selectedLoan.interest_pending),
-                              ),
-                            )
-                          }
+                          disabled={busy || loading}
+                          onClick={() => {
+                            setPenaltyDraft(null);
+                            setPaymentAmount(decimalSoles(settlementBalance));
+                          }}
                         >
                           Liquidar préstamo
                         </Button>
+                        {selectedStatus?.requiresSettlement && <Button type="button" variant={penaltyActive ? "default" : "outline"} aria-pressed={penaltyActive} disabled={busy || loading} onClick={() => {
+                          setPenaltyDraft(penaltyActive ? null : { key: penaltyKey, amount: "", reason: "" });
+                          setPaymentAmount(decimalSoles(settlementBalance));
+                          setPaidOn(today);
+                        }}>Penalidad</Button>}
                       </div>
                       <p className="mt-3 text-xs leading-5 text-slate-500">
                         Las cuotas se completan desde la más antigua. Liquidar
@@ -1429,7 +1120,8 @@ export default function FinancialWorkspace({
                       <label>
                         Monto (S/)
                         <input
-                          value={paymentAmount}
+                          value={penaltyActive ? decimalSoles(settlementBalance) : paymentAmount}
+                          readOnly={penaltyActive}
                           onChange={(e) => setPaymentAmount(e.target.value)}
                           required
                           inputMode="decimal"
@@ -1443,78 +1135,63 @@ export default function FinancialWorkspace({
                           value={paidOn}
                           onChange={(e) => setPaidOn(e.target.value)}
                           required
-                          min={selectedPeriod?.start_date}
+                          min={penaltyActive && selectedPeriod ? addDays(selectedPeriod.end_date, 1) : selectedPeriod?.start_date}
                           max={today}
                         />
                       </label>
                     </div>
+                    {!penaltyActive && possibleDuplicates>0 && <aside role="note" className="rounded-xl border border-[var(--warning-border)] bg-[var(--warning-bg)] p-4 text-sm text-[var(--warning-text)]"><strong>Posible pago duplicado</strong><p>Ya hay {possibleDuplicates} pago(s) con ese monto y fecha en este préstamo. Revisa los registros antes de confirmar otro cobro.</p><button type="button" className="mt-2 min-h-11 font-semibold underline" onClick={()=>registeredPaymentsRef.current?.scrollIntoView({behavior:"auto",block:"start"})}>Revisar pagos registrados</button></aside>}
+                    {!penaltyActive && paymentPreview && <div aria-label="Distribución estimada del pago" className="rounded-xl bg-blue-50 p-4 text-sm"><h4 className="mb-3 font-semibold">Así se aplicará el pago</h4><dl className="grid gap-3 sm:grid-cols-3"><div><dt>Interés</dt><dd className="font-semibold">{money(paymentPreview.interestPaid)}</dd></div><div><dt>Capital</dt><dd className="font-semibold">{money(paymentPreview.capitalPaid)}</dd></div><div><dt>Saldo después del pago</dt><dd className="font-semibold">{money(paymentPreview.pendingCapital + paymentPreview.pendingInterest)}</dd></div></dl></div>}
+                    {paymentValidationError && <Notice error>{paymentValidationError}</Notice>}
+                    {penaltyActive && <fieldset className="space-y-4 rounded-xl border border-[var(--warning-border)] bg-[var(--warning-bg)] p-4">
+                      <legend className="px-2 font-semibold">Penalidad opcional por plazo vencido</legend>
+                      <label className="block">Penalidad (S/)<input inputMode="decimal" required disabled={busy} value={penaltyDraft!.amount} onChange={e => setPenaltyDraft({ ...penaltyDraft!, amount: e.target.value })} placeholder="0.00" /></label>
+                      <label className="block">Motivo de la penalidad<textarea required minLength={3} maxLength={300} disabled={busy} value={penaltyDraft!.reason} onChange={e => setPenaltyDraft({ ...penaltyDraft!, reason: e.target.value })} /></label>
+                      <dl className="space-y-2 text-sm"><div className="flex justify-between gap-3"><dt>Saldo del préstamo</dt><dd>{money(settlementBalance)}</dd></div><div className="flex justify-between gap-3"><dt>Penalidad aparte</dt><dd>{money(penaltyPreview)}</dd></div><div className="flex justify-between gap-3 border-t pt-2 font-semibold"><dt>Total a cobrar</dt><dd>{money(settlementBalance + penaltyPreview)}</dd></div></dl>
+                      <p className="text-xs">Se cobra junto con la liquidación. Se registra por separado del capital y del interés. Puedes desactivarla con el botón Penalidad.</p>
+                    </fieldset>}
                     <div className="flex flex-wrap gap-2">
-                      <Button type="submit" disabled={busy}>
-                        {busy ? "Registrando…" : "Confirmar pago"}
+                      <Button type="submit" disabled={busy || loading || (!penaltyActive && Boolean(paymentValidationError))}>
+                        {busy ? "Registrando…" : penaltyActive ? "Confirmar liquidación con penalidad" : "Confirmar pago"}
                       </Button>
                     </div>
                     <p className="text-xs leading-5 text-slate-500">
-                      Los pagos son definitivos. Revisa monto y fecha antes de
-                      confirmar.
+                      Revisa monto y fecha antes de confirmar. Un administrador puede corregir registros equivocados con motivo y revisión del resultado.
                     </p>
                   </form>
                 </Card>
                 {selectedPeriod && selectedLoan.interest_pending > 0 && today < selectedPeriod.end_date && (
                   <EarlySettlement key={`${selected}:${revision}`} loan={selectedLoan} period={selectedPeriod} today={today} busy={busy}
-                    onConfirm={(args, confirmation) => mutate("settle_loan_early", args, confirmation)} />
+                    onConfirm={async (args, confirmation) => { await mutate("settle_loan_early", args, confirmation); }} />
                 )}
                 <details className="surface p-5">
                   <summary className="flex min-h-11 items-center justify-between gap-3 text-sm font-semibold">
-                    <span>Refinanciar un mes</span>
+                    <span>Refinanciar préstamo</span>
                     <ChevronRight size={18} />
                   </summary>
                   <div className="mt-4 space-y-4 text-sm leading-6">
-                    <p>
-                      Misma tasa mensual {selectedLoan.rate_basis_points / 100}{" "}
-                      % sobre el capital original. El nuevo periodo comienza al
-                      terminar de pagar el interés anterior.
-                    </p>
-                    <p>
-                      Inicio:{" "}
-                      {selectedPeriod?.interest_settled_on
-                        ? dateLabel(selectedPeriod.interest_settled_on)
-                        : "Interés aún pendiente"}
-                    </p>
-                    {selectedLoan.interest_pending !== 0 ? (
-                      <p className="rounded-lg bg-amber-50 p-3 text-amber-800">
-                        Completa el pago del interés para solicitar la
-                        refinanciación.
-                      </p>
-                    ) : data.installments.some(
-                        (i) =>
-                          i.loan_id === selected &&
-                          i.is_current &&
-                          i.due_date < today &&
-                          i.pending_cents > 0,
-                      ) ? (
-                      <p className="rounded-lg bg-red-50 p-3 text-red-700">
-                        Hay cuotas vencidas pendientes de pago.
-                      </p>
-                    ) : null}
+                    <p>Misma tasa mensual {selectedLoan.rate_basis_points / 100} % sobre el capital original. El interés anterior debe estar pagado y el periodo terminado.</p>
+                    <ul className="space-y-2 rounded-xl bg-slate-50 p-4" aria-label="Condiciones para refinanciar"><li>Interés anterior: {selectedLoan.interest_pending === 0 ? "pagado" : `${money(selectedLoan.interest_pending)} pendiente`}</li><li>Plazo anterior: {selectedPeriod && today > selectedPeriod.end_date ? "terminado" : "vigente"}{selectedPeriod ? ` · vence ${dateLabel(selectedPeriod.end_date)}` : ""}</li></ul>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <label>Fecha de refinanciación
+                        <input type="date" required value={refinanceStart} min={selectedPeriod ? addDays(selectedPeriod.end_date, 1) : undefined} max={today} disabled={busy} onChange={event => setRefinanceDraft({ key: refinanceKey, start: event.target.value, months: refinanceMonths })} />
+                      </label>
+                      <label>Plazo de refinanciación
+                        <select aria-label="Plazo de refinanciación" value={refinanceMonths} disabled={busy} onChange={event => setRefinanceDraft({ key: refinanceKey, start: refinanceStart, months: Number(event.target.value) as 1 | 2 })}>
+                          <option value="1">1 mes · 4 cuotas semanales</option>
+                          <option value="2">2 meses · 8 cuotas semanales</option>
+                        </select>
+                      </label>
+                    </div>
+                    {refinanceError && <p className="rounded-lg bg-amber-50 p-3 text-amber-800">{refinanceError}</p>}
+                    {refinancePreview && <div className="space-y-3 rounded-xl bg-blue-50 p-4">
+                      <p>Inicio: {dateLabel(refinancePreview.startDate)} · Fin: {dateLabel(refinancePreview.endDate)}</p>
+                      <p>Capital pendiente: {money(refinancePreview.pendingCapital)} · Nuevo interés: {money(refinancePreview.interestCents)} · Total: <strong>{money(refinancePreview.totalCents)}</strong></p>
+                      <ul className="grid gap-2 sm:grid-cols-2">{refinancePreview.installments.map(quota => <li key={quota.number}>Cuota {quota.number} · {dateLabel(quota.dueDate)} · {money(quota.scheduledCents)}</li>)}</ul>
+                    </div>}
                     <Button
-                      disabled={
-                        busy ||
-                        selectedLoan.interest_pending !== 0 ||
-                        data.installments.some(
-                          (i) =>
-                            i.loan_id === selected &&
-                            i.is_current &&
-                            i.due_date < today &&
-                            i.pending_cents > 0,
-                        )
-                      }
-                      onClick={() =>
-                        mutate(
-                          "refinance_loan",
-                          { p_loan: selected },
-                          "¿Refinanciar un mes con la misma tasa sobre el capital original? Se conservará el historial previo.",
-                        )
-                      }
+                      disabled={busy || Boolean(refinanceError) || !refinancePreview}
+                      onClick={() => refinancePreview && mutate("refinance_loan", { p_loan: selected, p_start: refinancePreview.startDate, p_months: refinancePreview.months }, `¿Refinanciar por ${refinancePreview.months} mes(es), del ${dateLabel(refinancePreview.startDate)} al ${dateLabel(refinancePreview.endDate)}, con interés de ${money(refinancePreview.interestCents)} y total de ${money(refinancePreview.totalCents)}? Se conservará el historial previo.`)}
                     >
                       <RefreshCw size={16} /> Confirmar refinanciación
                     </Button>
@@ -1525,7 +1202,7 @@ export default function FinancialWorkspace({
             <div>
               <SectionHeading
                 title="Historial de periodos y cuotas"
-                description="Se conservan las fechas y los cronogramas originales."
+                description="Se conservan las fechas de cada periodo. Los importes reflejan las correcciones auditadas."
               />
               {data.periods
                 .filter((p) => p.loan_id === selected)
@@ -1585,11 +1262,11 @@ export default function FinancialWorkspace({
                   </div>
                 ))}
             </div>
-            <div>
+            <div ref={registeredPaymentsRef}>
               <SectionHeading title="Pagos registrados" />
               <DataTable
                 caption="Pagos de este préstamo"
-                headers={["Fecha", "Total cobrado", "Interés cobrado", "Capital", "Descuento de interés"]}
+                headers={["Fecha", "Total cobrado", "Interés", "Capital", "Penalidad", "Motivo de penalidad", "Descuento de interés", ...(role === "administrador" ? ["Corrección"] : [])]}
                 keys={data.payments
                   .filter((p) => p.loan_id === selected)
                   .sort((a, b) => a.created_at.localeCompare(b.created_at))
@@ -1597,16 +1274,21 @@ export default function FinancialWorkspace({
                 rows={data.payments
                   .filter((p) => p.loan_id === selected)
                   .sort((a, b) => a.created_at.localeCompare(b.created_at))
-                  .map((p) => [
+                  .map((p, index) => [
                     dateLabel(p.paid_on),
-                    money(p.amount_cents),
+                    money(paymentReceived(p)),
                     money(p.interest_cents),
                     money(p.capital_cents),
+                    money(p.penalty_cents ?? 0),
+                    p.penalty_reason ?? "—",
                     money(p.interest_discount_cents ?? 0),
+                    ...(role === "administrador" ? [<Button key="correct" variant="outline" disabled={busy || loading} aria-label={`Corregir pago ${index + 1}: ${money(paymentReceived(p))} del ${dateLabel(p.paid_on)}`} onClick={() => { setCorrectingPayment(p); setError(""); setSuccess(""); }}>Corregir</Button>] : []),
                   ])}
                 emptyTitle="Aún no hay pagos"
                 emptyDescription="El historial se actualizará al registrar un pago."
               />
+              {role === "administrador" && correctingPayment && <PaymentCorrectionForm key={correctingPayment.id} payment={correctingPayment} loanHasDiscount={data.payments.some(p=>p.loan_id===selected && (p.interest_discount_cents ?? 0)>0)} minDate={data.periods.find(p=>p.id===correctingPayment.period_id)?.start_date} onBusyChange={setBusy} onClose={()=>setCorrectingPayment(null)} onComplete={()=>{setCorrectingPayment(null);setPaymentAmount("");setPenaltyDraft(null);setSuccess("Corrección guardada. Se han actualizado el saldo, la caja y los intereses cobrados.");setRevision(r=>r+1);}} />}
+              {role === "administrador" && <PaymentCorrectionHistory key={selected} loanId={selected} revision={`${revision}:${liveRevision}`} />}
             </div>
           </div>
         )}

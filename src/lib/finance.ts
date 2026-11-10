@@ -30,7 +30,7 @@ export function applyPayment(payment: number, pendingInterest: number, pendingCa
 export function requireInterestSettled(pendingInterest: number) {
   monetary(pendingInterest);
   if (pendingInterest !== 0) throw new Error('No se puede refinanciar con intereses pendientes.');
-  // This prerequisite alone does not authorize refinancing: date/rate conditions are pending.
+  // The current period must also have ended before a new one can be authorized.
 }
 
 export type ScheduledInstallment = {
@@ -75,14 +75,17 @@ export function scheduleLoan(originalCapital: number, monthlyRateBasisPoints: nu
   return { originalCapital, interestCents, totalCents: Number(total), endDate: installments.at(-1)!.dueDate, installments };
 }
 
-/** Preview only: persisted balances, settlement date and overdue count must come from the database. */
+/** Preview only: persisted balances, settlement date and current period must come from the database. */
 export function scheduleRefinancing(input: {
   originalCapital: number;
   pendingCapital: number;
   pendingInterest: number;
-  overdueUnpaidInstallments: number;
+  currentPeriodEndDate: string;
+  asOfDate: string;
   existingRateBasisPoints: number;
   interestSettlementDate: string;
+  startDate?: string;
+  months?: 1 | 2;
 }) {
   monetary(input.originalCapital);
   requireApprovedProduct(input.originalCapital, input.existingRateBasisPoints, 1);
@@ -90,37 +93,45 @@ export function scheduleRefinancing(input: {
   if (input.pendingCapital === 0 || input.pendingCapital > input.originalCapital) {
     throw new Error('El capital pendiente debe ser positivo y no superar el capital original.');
   }
-  requireRefinancingPrerequisites(input.pendingInterest, input.overdueUnpaidInstallments);
-  const originalPlan = scheduleLoan(input.originalCapital, input.existingRateBasisPoints, 1, input.interestSettlementDate);
+  requireRefinancingPrerequisites(input.pendingInterest, input.currentPeriodEndDate, input.asOfDate);
+  contractualDate(input.interestSettlementDate);
+  if (input.interestSettlementDate > input.asOfDate) throw new Error('El interés no puede figurar pagado en una fecha futura.');
+  const start = contractualDate(input.currentPeriodEndDate);
+  start.setUTCDate(start.getUTCDate() + 1);
+  const startDate = input.startDate ?? start.toISOString().slice(0, 10);
+  contractualDate(startDate);
+  if (startDate <= input.currentPeriodEndDate || startDate > input.asOfDate) throw new Error('La fecha de refinanciación debe ser posterior al vencimiento anterior y no puede ser futura.');
+  const months = input.months ?? 1;
+  const originalPlan = scheduleLoan(input.originalCapital, input.existingRateBasisPoints, months, startDate);
   const total = BigInt(input.pendingCapital) + BigInt(originalPlan.interestCents);
   if (total > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Deuda fuera de rango.');
-  const base = total / 4n;
-  const remainder = Number(total % 4n);
+  const count = months * 4;
+  const base = total / BigInt(count);
+  const remainder = Number(total % BigInt(count));
   return {
     originalCapital: input.originalCapital,
     pendingCapital: input.pendingCapital,
     rateBasisPoints: input.existingRateBasisPoints,
-    startDate: input.interestSettlementDate,
+    months,
+    startDate,
     endDate: originalPlan.endDate,
     interestCents: originalPlan.interestCents,
     totalCents: Number(total),
     installments: originalPlan.installments.map((row, index) => ({
-      ...row, scheduledCents: Number(base) + (index >= 4 - remainder ? 1 : 0),
+      ...row, scheduledCents: Number(base) + (index >= count - remainder ? 1 : 0),
     })),
   };
 }
 
-export const loanProducts = [
-  { id: '500-1', label: 'S/500 · 7 % mensual · 1 mes (4 cuotas)', capital: 50000, rate: 700, months: 1 },
-  { id: '1000-1', label: 'S/1.000 · 6 % mensual · 1 mes (4 cuotas)', capital: 100000, rate: 600, months: 1 },
-  { id: '1000-2', label: 'S/1.000 · 6 % mensual · 2 meses (8 cuotas)', capital: 100000, rate: 600, months: 2 },
-  { id: '2000-2', label: 'S/2.000 · 6 % mensual · 2 meses (8 cuotas)', capital: 200000, rate: 600, months: 2 },
-] as const;
-
+/** Monthly rate inferred from capital, not entered by the operator. */
+export function monthlyRateForCapital(capital: number): number {
+  monetary(capital);
+  if (capital === 0) throw new Error('El monto del préstamo debe ser mayor que cero.');
+  return capital <= 50000 ? 700 : 600;
+}
 export function requireApprovedProduct(capital: number, rate: number, months: number) {
-  if (!loanProducts.some(product => product.capital === capital && product.rate === rate && product.months === months)) {
-    throw new Error('Selecciona uno de los productos de préstamo autorizados.');
-  }
+  if (months !== 1 && months !== 2) throw new Error('El plazo debe ser de uno o dos meses.');
+  if (rate !== monthlyRateForCapital(capital)) throw new Error('La tasa no corresponde al monto del préstamo.');
 }
 export function decimalSoles(amount: number | bigint): string {
   if (typeof amount === 'number') monetary(amount);
@@ -134,11 +145,12 @@ export function formatPEN(amount: number | bigint) {
     .formatToParts(BigInt(whole)).map(part => part.type === 'fraction' ? fraction : part.value).join('');
 }
 
-/** Necessary prerequisites; contract date/rate conditions must be approved separately. */
-export function requireRefinancingPrerequisites(pendingInterest: number, overdueUnpaidInstallments: number) {
+/** Overdue installments do not prevent refinancing after the current period has ended. */
+export function requireRefinancingPrerequisites(pendingInterest: number, currentPeriodEndDate: string, asOfDate: string) {
   requireInterestSettled(pendingInterest);
-  monetary(overdueUnpaidInstallments);
-  if (overdueUnpaidInstallments > 0) throw new Error('No se puede refinanciar con cuotas vencidas pendientes.');
+  contractualDate(currentPeriodEndDate);
+  contractualDate(asOfDate);
+  if (asOfDate <= currentPeriodEndDate) throw new Error('El periodo aún no ha terminado; puedes refinanciar desde el día siguiente al vencimiento.');
 }
 
 /** Manual interest forgiveness only; collected interest is never refunded. */

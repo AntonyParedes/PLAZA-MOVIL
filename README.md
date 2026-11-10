@@ -1,10 +1,10 @@
-# PM Créditos
+# Rapi Créditos
 
 Base de desarrollo de una aplicación de préstamos personales en PEN y zona America/Lima. Next.js App Router, TypeScript, Tailwind, componente Button compatible con shadcn/ui, Supabase y Zod. Se usan consultas Supabase y migraciones SQL, sin Prisma.
 
 ## Estado real
 
-Implementados: acceso por correo/contraseña, roles, consulta/alta/edición de clientes, panel financiero, préstamos, cronogramas, pagos parciales y totales, refinanciaciones, historial, alertas, WhatsApp manual, reportes XLSX completos y CSV, y apariencia día/noche manual o automática. Productos disponibles: S/500 al 7 % mensual por un mes; S/1.000 al 6 % mensual por uno o dos meses y S/2.000 al 6 % mensual por dos meses (intereses S/35, S/60, S/120 y S/240, respectivamente). Las operaciones financieras utilizan RPC SQL transaccionales, bloqueos e idempotencia; pagos definitivos sin anulación ni eliminación, según decisión del usuario.
+Implementados: acceso por correo/contraseña, roles, consulta/alta/edición de clientes, panel financiero, préstamos, cronogramas, pagos parciales y totales, refinanciaciones, historial, alertas, WhatsApp manual, reportes XLSX completos y CSV, y apariencia día/noche manual o automática. Montos flexibles: hasta S/500 al 7 % mensual, mayores de S/500 al 6 %, siempre por uno o dos meses (cuatro u ocho cuotas). La tasa es automática y el interés se calcula sobre el capital original por el número de meses. Las operaciones financieras utilizan RPC SQL transaccionales, bloqueos e idempotencia; correcciones administrativas de pagos con motivo, revisión previa y conservación del original en auditoría, según la instrucción actual del usuario.
 
 **Sin proyecto Supabase conectado: autenticación, persistencia y permisos aún no se han validado contra el servicio real.** Hay pruebas en PostgreSQL local con Auth simulado.
 
@@ -29,7 +29,7 @@ No crear worktrees durante configuración: las tareas de nube ya están aisladas
 
 1. Crear proyecto Supabase. Copiar `.env.example` a `.env.local` (ignorado), sin sobreescribir configuración existente.
 2. Configurar `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. La clave publicable es pública; jamás utilizar `service_role` en una variable `NEXT_PUBLIC_*`.
-3. Aplicar primero `supabase/migrations/202610090001_clients_security.sql` después `supabase/migrations/202610090002_financial_operations.sql`, `supabase/migrations/202610090003_client_stand.sql` y `supabase/migrations/202610100004_loan_2000.sql` en SQL Editor una sola vez cada una. Son migraciones iniciales, no scripts para ejecutar repetidamente.
+3. Aplicar primero `supabase/migrations/202610090001_clients_security.sql` después `supabase/migrations/202610090002_financial_operations.sql`, `supabase/migrations/202610090003_client_stand.sql` y `supabase/migrations/202610100004_loan_2000.sql` y `supabase/migrations/202610140005_refinance_after_period.sql` y `supabase/migrations/202610150006_flexible_loans_and_refinancing.sql` y `supabase/migrations/202610150007_refinance_date_and_term.sql` en SQL Editor una sola vez cada una. Son migraciones iniciales, no scripts para ejecutar repetidamente.
 4. Crear usuarios desde Supabase Authentication con contraseña segura; desactivar registro público en los ajustes de Auth. No hay registro de usuarios desde la aplicación.
 5. El responsable del proyecto asigna el perfil desde SQL Editor (UUID real del usuario):
 
@@ -68,7 +68,7 @@ Clientes: código de stand y condición socio/trabajador son obligatorios al reg
 
 **En un proyecto existente que ya ejecutó las migraciones 001 y 002, ejecutar únicamente `supabase/migrations/202610090003_client_stand.sql`, una sola vez. No repetir las migraciones iniciales.** En un proyecto nuevo, aplicar las tres en orden. Esta migración agrega columnas y validaciones, sin borrar ni recalcular préstamos o pagos.
 
-Panel general: una fila por préstamo y seis columnas: Prestatario, Fecha del préstamo, Día de pago (día de la semana), Saldo, Cuota semanal y Estado. Primero aparecen los préstamos con mayor atraso; los liquidados quedan al final. Verde indica puntual/liquidado, ámbar atraso y rojo mora. Pulsar el nombre abre identificación, fechas, refinanciación, cronograma, pagos y WhatsApp. Saldo incluye capital e interés pendientes; la cuota semanal es el importe programado. Busca por nombre/DNI/stand y filtra por condición y estado. Excel completo y CSV mantienen toda la información.
+Panel general: una fila por préstamo y siete columnas: Prestatario, Fecha del préstamo, N.º de cuotas, Día de pago (día de la semana), Saldo, Cuota semanal y Estado. Primero aparecen los préstamos con mayor atraso; los liquidados quedan al final. Verde indica puntual/liquidado, ámbar atraso y rojo mora. Pulsar el nombre abre identificación, fechas, refinanciación, cronograma, pagos y WhatsApp. Saldo incluye capital e interés pendientes; la cuota semanal es el importe programado. Busca por nombre/DNI/stand y filtra por condición y estado. Excel completo y CSV mantienen toda la información.
 
 
 Clasificación aprobada: sin cuotas vencidas pendientes = Puntual; de 1 a 6 días = «Se atrasó X días»; desde 7 días = En mora. Se cuenta desde la cuota vigente impaga más antigua, incluyendo pagos parciales, según fecha de Lima. Las cuotas históricas de refinanciaciones no duplican deuda ni atraso. La clasificación es visual y no genera cargos. La fecha de Lima se actualiza cada minuto mientras el panel está abierto.
@@ -103,10 +103,76 @@ El menú omite Cobros semanales e Historial de pagos. El registro y la consulta 
 
 El botón luna/sol de la barra superior y del acceso alterna modo día y noche con fondos suaves. La elección se conserva en este navegador. Configuración permite volver a seguir el dispositivo. No requiere SQL adicional.
 
+### Consulta y actualización automática
+
+El acceso `jefe` permite visualizar sin realizar operaciones de escritura. Para crear una cuenta y habilitar eventos de Supabase Realtime, sigue [Acceso de consulta](docs/ACCESO-CONSULTA.md). Sin eventos, la interfaz conserva un respaldo de actualización cada 30 segundos y al volver de una pestaña oculta a visible. Estos pasos de administración no se ejecutan desde el navegador de PM Créditos.
+
+### Actualizar la refinanciación en un proyecto existente
+
+Aplicar únicamente `supabase/migrations/202610140005_refinance_after_period.sql` si las anteriores ya están instaladas. Sustituye `refinance_loan` sin modificar préstamos, pagos, tablas ni políticas. Permite refinanciar con cuotas vencidas cuando el interés está pagado y el periodo ha terminado. El nuevo mes empieza el día siguiente al fin anterior. No repetir las migraciones iniciales. La actualización de Vercel por sí sola no cambia la función de Supabase.
+
+Las pruebas de `operations.test.ts` conservan la verificación de migraciones históricas; `refinancing-sql.test.ts` aplica la 005 y verifica la regla vigente, conservación de operaciones e idempotencia.
+
+### Actualización 006: monto ingresado y refinanciación
+
+Para proyectos con las migraciones iniciales instaladas, ejecutar únicamente `supabase/migrations/202610150006_flexible_loans_and_refinancing.sql`. Esta actualización incluye la regla de refinanciación de 005, por lo que resuelve ambas funciones en una sola transacción aunque no se haya aplicado 005. No modifica los préstamos ni pagos anteriores. También requiere desplegar esta versión del frontend: un redeploy de código antiguo conserva el bloqueo visual anterior.
+
+El nuevo administrador se crea desde Supabase Authentication con el otro correo y se asigna `administrador` en `profiles`. Sigue la sección «Crear otro administrador» de [Accesos](docs/ACCESO-CONSULTA.md). El frontend no administra contraseñas ni permite elevar roles.
+
+### Actualización 007: fecha y plazo del refinanciamiento
+
+Aplicar `supabase/migrations/202610150007_refinance_date_and_term.sql` en SQL Editor sobre un proyecto con las migraciones iniciales instaladas. Incluye la creación de préstamos flexibles y la corrección de cuotas vencidas anteriores; no es necesario repetir 005/006 si faltan. Permite elegir fecha posterior al vencimiento y no futura, y uno o dos meses. Genera cuatro u ocho cuotas, con la misma tasa sobre el capital original por los meses elegidos. Conserva compatibilidad con llamadas antiguas de dos argumentos e idempotencia. La interfaz debe desplegarse junto con esta actualización del servidor.
+
+
+## Eliminar un cliente registrado por error
+
+Solo el administrador puede hacerlo desde **Clientes → pulsar el nombre → Eliminar cliente**. Se muestra un resumen verificado de préstamos, pagos, saldo y total cobrado; es obligatorio escribir el DNI y un motivo. La eliminación es definitiva e incluye todos los préstamos, periodos, refinanciaciones, cuotas, pagos y sus aplicaciones de ese cliente. Sus importes dejan de figurar en los reportes. No elimina usuarios de Authentication ni perfiles de acceso. Conserva una constancia administrativa con autor, motivo, fecha e importes eliminados.
+
+**Para habilitar esta función, ejecutar `supabase/migrations/202610190008_delete_client.sql` en Supabase SQL Editor sobre la base existente y desplegar el código actualizado.** No repetir las migraciones iniciales. La migración solo agrega la función y su auditoría: no elimina clientes por sí misma. Requiere las tablas de 001 y 002 y es compatible con 003 y 004.
+
+La operación bloquea el cliente y sus préstamos y borra los registros en una sola transacción. Si el resumen cambia por otro pago, edición o refinanciación, exige actualizarlo y confirmar nuevamente. Los reintentos de una eliminación ya completada no repiten la operación. Los roles de consulta no pueden ejecutar las funciones de eliminación y el acceso directo DELETE continúa revocado. Las pruebas PostgreSQL cubren permisos, rollback, integridad, otros clientes y cuentas de acceso; las de navegador usan datos simulados. No se ha ejecutado esta migración en el proyecto Supabase real.
+
+### Actualización 009: caja y ganancias
+
+Inicio muestra **Caja disponible** e **Interés cobrado (ganancia)** de toda la operación; la búsqueda de clientes no altera estos importes. Ganancia es el interés efectivamente cobrado durante todo el historial, sin capital recuperado ni interés pendiente. El detalle también informa interés cobrado en el mes actual según fecha de Lima.
+
+**Ejecutar únicamente `supabase/migrations/202610270009_cash.sql` en Supabase SQL Editor** sobre un proyecto con 001/002 instaladas y publicar la nueva versión en Vercel. La migración agrega las tablas y funciones de caja sin modificar préstamos o pagos; es compatible con 003–008. No se ha ejecutado en Supabase real desde este entorno.
+
+Un administrador configura una sola vez el **capital inicial anterior al primer préstamo registrado**, no el efectivo disponible hoy. Puede ser cero. Caja = dinero inicial + aportes + pagos recibidos − capital desembolsado en préstamos − retiros. No volver a cargar pagos como aportes ni préstamos como retiros: ya se incluyen automáticamente. Los préstamos liquidados conservan su desembolso histórico. Refinanciar no es un nuevo desembolso y el interés generado no aumenta la caja hasta cobrarse. El cálculo abarca todo el historial registrado; no reconstruye operaciones externas a la aplicación.
+
+Desde «Ver caja» se registran aportes y retiros con motivo obligatorio, autor y fecha de Lima. Son registros inmutables, con reintentos idempotentes y auditoría. Las correcciones se documentan con movimientos compensatorios; el dinero inicial no se reemplaza. Un saldo negativo se muestra con advertencia de conciliación, sin bloquear las operaciones existentes. El perfil de consulta puede ver el resumen y movimientos, pero no registrarlos. La actualización conserva formularios abiertos y usa Realtime o el respaldo de 30 segundos. Los totales de caja se obtienen juntos en una sola consulta de PostgreSQL y se transmiten en céntimos como texto, sin pérdida de precisión al sumar.
+
+La eliminación de un cliente registrado por error (008) también retira sus desembolsos y cobros del cálculo de caja y ganancia, de acuerdo con el borrado de su historial financiero. No usar esa función para retirar personas con movimientos reales que deban permanecer en la contabilidad.
+
+### Actualización 010: penalidad opcional al liquidar
+
+En el detalle de un préstamo activo cuyo **periodo vigente completo ya venció**, el administrador ve **Penalidad** junto a «Liquidar préstamo». Permite ingresar un importe y motivo, revisar saldo + penalidad = total cobrado y confirmar la liquidación. Puede desactivarse o usarse «Liquidar préstamo» para cobrar sin penalidad. No aplica automáticamente por días de atraso y no aparece para el perfil de consulta ni por una cuota semanal vencida dentro de un contrato vigente.
+
+**Aplicar `supabase/migrations/202611030010_settlement_penalty.sql` en Supabase SQL Editor después de 008 y 009 y desplegar el nuevo frontend.** Agrega campos a los pagos existentes con penalidad cero; no cobra ni modifica saldos anteriores al ejecutarse. La nueva función bloquea el préstamo, verifica el saldo confirmado, exige fecha de pago posterior al vencimiento y no futura, y registra liquidación y penalidad en una sola transacción idempotente. No modifica la API de pagos normales.
+
+La penalidad se almacena por separado de `amount_cents` (capital + interés aplicado al préstamo), con `penalty_cents` y `penalty_reason`. El total de efectivo recibido es su suma. Solo capital e interés se aplican al cronograma; la penalidad no genera intereses ni cambia cuotas o saldo pendiente. Caja incluye la penalidad efectivamente cobrada y la muestra aparte; «Interés cobrado (ganancia)» conserva solo intereses. Reportes incluye un Registro de penalidades independiente, con fecha, cliente, importe y motivo, CSV propio y hoja Penalidades en Excel. El registro usa la vista de solo lectura `penalty_register`, respaldada por el recibo para conservar trazabilidad sin duplicar el ingreso. Historial, Clientes, CSV y Excel separan penalidad, motivo y total; los cobros semanales/mensuales incluyen el ingreso una sola vez. La eliminación de un cliente equivocado conserva su comportamiento y retira también su penalidad del cálculo, manteniendo la auditoría de importes eliminados. No se ha aplicado esta migración al proyecto Supabase real desde el entorno de desarrollo.
+
+### Actualización visual: apple-design
+
+Rediseño compartido de los seis módulos, acceso, caja, clientes, tablas y paneles de detalle siguiendo [apple-design de Emil Kowalski](https://github.com/emilkowalski/skills/blob/main/skills/apple-design/SKILL.md). Se mantienen los colores de Plaza Móvil; mejora la jerarquía de importes y estados, tipografía de sistema, navegación día/noche, materiales suaves, formularios de 16 px y respuesta al presionar. Incluye adaptaciones para movimiento reducido, contraste alto y transparencia reducida. Ver [criterios de diseño y validación](docs/DISENO-APPLE.md).
+
+Este cambio visual **no requiere SQL nuevo**. Publicar el nuevo commit desde Vercel; las funciones financieras siguen usando las migraciones ya instaladas. Las capturas y recorridos de revisión usan datos simulados, sin acceder a cuentas de producción.
+
+### Rapi Créditos: flujos orientados a la persona
+
+El aplicativo usa el nombre Rapi Créditos y la identidad de Plaza Móvil. Nuevo préstamo comienza por elegir al cliente, continúa con condiciones y termina con una revisión completa. Desde la ficha se accede directamente a prestar o cobrar. Cobros y caja muestran el resultado previsto, y abrir otra cuenta limpia el importe anterior sin alterar la sincronización de la cuenta abierta. Ver [revisión de los flujos](docs/FLUJOS-USO.md). No requiere SQL adicional.
+
+## Correcciones de pagos
+
+Para anular duplicados o corregir monto/fecha, aplicar [la migración 011](supabase/migrations/202611040011_payment_corrections.sql) en Supabase SQL Editor y publicar la versión actualizada. La migración no cambia pagos existentes automáticamente. Uso y reglas de reconstrucción: [Correcciones de pagos](docs/CORRECCIONES-PAGOS.md).
+
 ## Cancelación anticipada con descuento manual
 
 En el detalle de un préstamo activo, antes del vencimiento del periodo vigente, el administrador puede abrir «Cancelación anticipada con descuento», indicar el descuento en soles y revisar capital a cobrar, interés a cobrar y total. Se cobra todo el capital pendiente más el interés pendiente menos el descuento. El descuento debe ser positivo y no superar el interés pendiente; no devuelve intereses ya cobrados. En la fecha de vencimiento y después no está disponible. La fecha efectiva no puede ser futura, anterior al periodo ni anterior a un pago ya registrado.
 
-La confirmación es definitiva. La operación SQL bloquea el préstamo, verifica el total contra el saldo actualizado y registra pago, descuento, asignaciones a cuotas y auditoría en una sola transacción, con UUID idempotente. El préstamo y las cuotas quedan sin saldo. Se conservan los cronogramas originales y los abonos previos; los descuentos se muestran separados del efectivo recibido en detalle, Clientes, CSV de pagos y hojas Pagos/Cuotas del Excel. Jefe solo consulta.
+La cancelación requiere confirmación. Las correcciones posteriores siguen el flujo de auditoría de pagos. La operación SQL bloquea el préstamo, verifica el total contra el saldo actualizado y registra pago, descuento, asignaciones a cuotas y auditoría en una sola transacción, con UUID idempotente. El préstamo y las cuotas quedan sin saldo. Se conservan los cronogramas originales y los abonos previos; los descuentos se muestran separados del efectivo recibido en detalle, Clientes, CSV de pagos y hojas Pagos/Préstamos liquidados del Excel. Jefe solo consulta.
 
-Para activar esta versión: aplicar **una sola vez** `supabase/migrations/202611100005_early_settlement.sql` en Supabase SQL Editor sobre el proyecto que ya tiene las migraciones 001–004, y después desplegar la nueva aplicación en Vercel. No repetir las migraciones anteriores. Sin la 005, la cancelación anticipada no se podrá registrar; los pagos habituales conservan su operación existente. No requiere nuevas variables de entorno. Las pruebas locales usan PostgreSQL PGlite y Supabase simulado; no acreditan ejecución en el proyecto real ni concurrencia entre conexiones independientes.
+Para activar esta versión: aplicar **una sola vez** `supabase/migrations/202611100005_early_settlement.sql` en Supabase SQL Editor sobre el proyecto que ya tiene las migraciones anteriores, y después desplegar la nueva aplicación en Vercel. No repetir las migraciones anteriores. Sin la 005, la cancelación anticipada no se podrá registrar; los pagos habituales conservan su operación existente. No requiere nuevas variables de entorno. Las pruebas locales usan PostgreSQL PGlite y Supabase simulado; no acreditan ejecución en el proyecto real ni concurrencia entre conexiones independientes.
+
+### Integración con cambios anteriores
+Se integra la rama `mejora/experiencia-navegacion` (82dc150), conservando Inicio, logo, caja, créditos flexibles, refinanciación y correcciones auditadas. Si ya aplicaste la 005 de cancelación anticipada, **no la repitas**. Aplica después `202611100012_integrate_early_settlement.sql`: incorpora descuentos al recálculo auditado y a la eliminación administrativa de clientes, sin modificar saldos ni pagos durante su instalación.

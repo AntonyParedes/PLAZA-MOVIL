@@ -59,8 +59,32 @@ async function mockSupabase(
       ];
     else if (url.pathname.startsWith("/rest/v1/rpc/")) {
       const name = url.pathname.split("/").at(-1)!;
-      calls.push({ name, body: request.postDataJSON() });
+      if (name !== "cash_summary") calls.push({ name, body: request.postDataJSON() });
       body = "33333333-3333-4333-8333-333333333333";
+      if (name === "cash_summary") body = tables.cash_summary ?? cashFixture(false);
+      if (name === "record_cash_movement") {
+        const fields = request.postDataJSON();
+        const current = (tables.cash_summary ?? cashFixture(false)) as ReturnType<typeof cashFixture>;
+        const field = fields.p_kind === "apertura" ? "opening_cents" : fields.p_kind === "aporte" ? "contributions_cents" : "withdrawals_cents";
+        current[field] = String(BigInt(current[field]) + BigInt(fields.p_amount));
+        current.configured = true;
+        current.balance_cents = String(BigInt(current.opening_cents) + BigInt(current.contributions_cents) + BigInt(current.received_cents) - BigInt(current.disbursed_cents) - BigInt(current.withdrawals_cents));
+        tables.cash_summary = { ...current };
+        tables.cash_movements = [{ id: String(fields.p_request), kind: fields.p_kind, amount_cents: fields.p_amount, note: fields.p_note, created_at: "2026-10-27T15:00:00Z" }, ...((tables.cash_movements ?? []) as unknown[])];
+      }
+      if (name === "settle_loan_with_penalty") {
+        const fields = request.postDataJSON();
+        const loan = (tables.loans as {id:string;capital_pending:number;interest_pending:number;status:string}[]).find(l => l.id === fields.p_loan)!;
+        const period = (tables.loan_periods as {id:string;loan_id:string;is_current:boolean}[]).find(p => p.loan_id === loan.id && p.is_current)!;
+        tables.payments = [...((tables.payments ?? []) as unknown[]), {id:body,loan_id:loan.id,period_id:period.id,amount_cents:fields.p_expected_balance,interest_cents:loan.interest_pending,capital_cents:loan.capital_pending,penalty_cents:fields.p_penalty,penalty_reason:fields.p_reason,paid_on:fields.p_paid_on,created_at:new Date().toISOString()}];
+        loan.capital_pending=0;loan.interest_pending=0;loan.status="liquidado";
+      }
+      if (name === "preview_client_deletion") body = tables.client_deletion_preview;
+      if (name === "delete_client") {
+        const id = request.postDataJSON().p_client;
+        tables.clients = (tables.clients as {id:string}[]).filter((client) => client.id !== id);
+        body = id;
+      }
     }
     if (
       url.pathname === "/rest/v1/clients" &&
@@ -98,13 +122,14 @@ async function login(page: Page) {
   ).toBeVisible();
   await expect(
     page.getByRole("heading", {
-      name: "Tu cartera, de un vistazo",
+      name: "Mi cartera.",
       exact: true,
     }),
   ).toBeVisible();
 }
 for (const [productId, capital, interest, quota] of [
   ["1000-2", 100000, 120, 140],
+  ["1500-2", 150000, 180, 210],
   ["2000-2", 200000, 240, 280],
 ] as const)
   test(`administrador selecciona ${productId} de ocho cuotas y envía tasa mensual con UUID idempotente`, async ({
@@ -113,13 +138,12 @@ for (const [productId, capital, interest, quota] of [
     const calls = await mockSupabase(page, "administrador");
     await login(page);
     await page
-      .getByRole("button", { name: "Panel general", exact: true })
+      .getByRole("button", { name: "Préstamos", exact: true })
       .click();
     await page.getByRole("button", { name: "Préstamos", exact: true }).click();
-    await page.getByRole("button", { name: "Nuevo préstamo" }).click();
-    await page
-      .getByRole("combobox", { name: "Producto de préstamo", exact: true })
-      .selectOption(productId);
+    await openNewLoan(page);
+    await page.getByLabel("Monto del préstamo (S/)", { exact: true }).fill(String(capital / 100));
+    await page.getByLabel("Plazo del préstamo", { exact: true }).selectOption("2");
     await page.getByLabel("Fecha del préstamo").fill("2026-10-09");
     await page.getByRole("button", { name: "Revisar cronograma" }).click();
     await expect(page.getByText(/Cuota 8 ·/)).toBeVisible();
@@ -170,7 +194,7 @@ test("jefe puede consultar pero no desembolsar ni importar", async ({
     page.getByRole("button", { name: "Editar", exact: true }),
   ).toHaveCount(0);
   await page
-    .getByRole("button", { name: "Panel general", exact: true })
+    .getByRole("button", { name: "Préstamos", exact: true })
     .click();
   await page.getByRole("button", { name: "Préstamos", exact: true }).click();
   await expect(
@@ -183,9 +207,8 @@ test("Excel muestra duplicados, saldos inconsistentes y fórmulas sin escribir a
 }) => {
   const calls = await mockSupabase(page, "administrador");
   await login(page);
-  await page
-    .getByRole("button", { name: "Revisar Excel", exact: true })
-    .click();
+  await navigateModule(page, "Configuración");
+  await page.getByRole("button", { name: "Revisar Excel", exact: true }).click();
   const { default: ExcelJS } = await import("exceljs");
   const book = new ExcelJS.Workbook();
   const sheet = book.addWorksheet("Préstamos");
@@ -277,7 +300,7 @@ test("conserva el acceso al volver a la pestaña y al restaurar la sesión; sali
   ).toBeEnabled();
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "Dashboard", exact: true }),
+    page.getByRole("heading", { name: "Inicio", exact: true }),
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Menú de usuario", exact: true })
@@ -294,7 +317,7 @@ test("conserva el acceso al volver a la pestaña y al restaurar la sesión; sali
   ).toBeVisible();
 });
 
-test("panel general simplificado conserva seis columnas, prioriza atraso y despliega identificación y WhatsApp", async ({
+test("panel general simplificado conserva siete columnas, prioriza atraso y despliega identificación y WhatsApp", async ({
   page,
 }) => {
   const { limaDate, addDays } = await import("../src/lib/portal");
@@ -361,7 +384,7 @@ test("panel general simplificado conserva seis columnas, prioriza atraso y despl
   });
   await login(page);
   await page
-    .getByRole("button", { name: "Panel general", exact: true })
+    .getByRole("button", { name: "Préstamos", exact: true })
     .click();
   const ana = page.getByRole("row").filter({ hasText: "Ana Socia" });
   await expect(ana).not.toContainText("S-01");
@@ -386,6 +409,7 @@ test("panel general simplificado conserva seis columnas, prioriza atraso y despl
   ).toHaveText([
     "Prestatario",
     "Fecha del préstamo",
+    "N.º de cuotas",
     "Día de pago",
     "Saldo",
     "Cuota semanal",
@@ -499,9 +523,14 @@ async function dashboardFixtures() {
   return { clients, loans, loan_periods, installment_balances, payments };
 }
 async function navigateModule(page: Page, name: string) {
+  if (name === "Revisar Excel") {
+    await navigateModule(page, "Configuración");
+    await page.getByRole("button", { name, exact: true }).click();
+    return;
+  }
   if (page.viewportSize()!.width < 1024)
     await page.getByRole("button", { name: "Abrir menú", exact: true }).click();
-  await page.getByRole("button", { name, exact: true }).click();
+  await page.getByRole("navigation", { name: "Menú principal" }).filter({ visible: true }).getByRole("button", { name, exact: true }).click();
   await expect(
     page.getByRole("heading", { name, exact: true, level: 1 }),
   ).toBeVisible();
@@ -513,11 +542,12 @@ for (const width of [375, 430, 768, 1024, 1440, 1920])
     await page.setViewportSize({ width, height: 900 });
     await mockSupabase(page, "administrador", await dashboardFixtures());
     await login(page);
-    await expect(page.getByText("S/ 4,000.00", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading",{name:"Resumen del negocio",exact:true})).toBeVisible();
+    await expect(page.locator(".home-capital-total")).toContainText("4,000.00");
     await expect(
       page.getByRole("heading", { name: "Cobros de hoy y esta semana" }),
-    ).toBeVisible();
-    await expect(page.getByText("Pagado", { exact: true })).toBeVisible();
+    ).toHaveCount(0);
+    await expect(page.getByRole("searchbox")).toHaveCount(0);
     const overflow = () =>
       page.evaluate(
         () => document.documentElement.scrollWidth > window.innerWidth,
@@ -554,7 +584,6 @@ for (const width of [375, 430, 768, 1024, 1440, 1920])
       "Panel general",
       "Clientes",
       "Préstamos",
-      "Refinanciaciones",
       "Reportes",
       "Configuración",
       "Revisar Excel",
@@ -584,12 +613,15 @@ test("pago confirmado mantiene el RPC, muestra éxito y bloquea refinanciación 
   page,
 }) => {
   const fixtures = await dashboardFixtures();
+  const { limaDate, addDays } = await import("../src/lib/portal");
+  fixtures.loan_periods[3].end_date = addDays(limaDate(), -1);
   const calls = await mockSupabase(page, "administrador", fixtures);
   await login(page);
+  await navigateModule(page, "Panel general");
   await page
     .getByRole("row")
     .filter({ hasText: "Ana Socia" })
-    .getByRole("button", { name: "Registrar pago", exact: true })
+    .getByRole("button", { name: "Ver detalle de Ana Socia", exact: true })
     .click();
   const sheet = page.getByRole("dialog");
   await expect(sheet).toBeVisible();
@@ -617,7 +649,7 @@ test("pago confirmado mantiene el RPC, muestra éxito y bloquea refinanciación 
   await expect(
     sheet.getByText("Pago registrado correctamente.", { exact: true }),
   ).toBeVisible();
-  await sheet.getByText("Refinanciar un mes", { exact: true }).click();
+  await sheet.getByText("Refinanciar préstamo", { exact: true }).click();
   await expect(
     sheet.getByRole("button", {
       name: "Confirmar refinanciación",
@@ -627,15 +659,13 @@ test("pago confirmado mantiene el RPC, muestra éxito y bloquea refinanciación 
   await sheet
     .getByRole("button", { name: "Cerrar detalle", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Refinanciaciones", exact: true })
-    .click();
+  await navigateModule(page, "Panel general");
   await page
     .getByRole("row")
     .filter({ hasText: "Diego Puntual" })
-    .getByRole("button", { name: "Ver préstamo", exact: true })
+    .getByRole("button", { name: "Ver detalle de Diego Puntual", exact: true })
     .click();
-  await sheet.getByText("Refinanciar un mes", { exact: true }).click();
+  await sheet.getByText("Refinanciar préstamo", { exact: true }).click();
   await expect(
     sheet.getByRole("button", {
       name: "Confirmar refinanciación",
@@ -889,7 +919,7 @@ test("recordatorio WhatsApp prepara estado, días de mora, advertencia y firma s
   expect(text).toContain(
     "El atraso puede generar penalidades según las condiciones de tu préstamo.",
   );
-  expect(text).toContain("Atentamente,\nLa Gerencia\nPM Créditos");
+  expect(text).toContain("Atentamente,\nLa Gerencia\nRapi Créditos");
   expect(calls).toHaveLength(0);
 });
 
@@ -906,10 +936,12 @@ for (const width of [375, 1440])
         () => getComputedStyle(document.body).backgroundColor,
       ),
     ).toBe("rgb(20, 17, 23)");
-    const card = page.locator("article.surface").first();
+    await navigateModule(page, "Reportes");
+    const card = page.locator("section.surface").filter({ has: page.getByRole("heading", { name: "Panel de cobranza", exact: true }) });
     expect(
       await card.evaluate((el) => getComputedStyle(el).backgroundColor),
     ).toBe("rgb(33, 28, 38)");
+    await navigateModule(page, "Reportes");
     const exporter = page.getByRole("button", {
       name: "Exportar Excel completo",
       exact: true,
@@ -951,32 +983,41 @@ test("Excel completo se descarga, abre como XLSX y conserva datos, cuotas y pago
 }) => {
   await mockSupabase(page, "administrador", await dashboardFixtures());
   await login(page);
-  await navigateModule(page, "Panel general");
+  await navigateModule(page, "Reportes");
   const downloadPromise = page.waitForEvent("download");
   await page
-    .getByRole("button", { name: "Exportar Excel completo", exact: true })
+    .getByRole("button", { name: "Panel de cobranza Excel", exact: true })
     .click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("pm-creditos-general.xlsx");
   const { default: ExcelJS } = await import("exceljs");
   const book = new ExcelJS.Workbook();
   await book.xlsx.readFile((await download.path())!);
-  expect(book.getWorksheet("Cartera")!.rowCount).toBe(5);
-  expect(book.getWorksheet("Cartera")!.getCell("F2").value).toBe("Ana Socia");
+  expect(book.getWorksheet("Préstamos activos")!.rowCount).toBe(4);
+  expect(book.getWorksheet("Préstamos activos")!.getCell("F2").value).toBe("Ana Socia");
   expect(book.getWorksheet("Pagos")!.rowCount).toBe(2);
-  expect(book.getWorksheet("Cuotas")!.rowCount).toBe(5);
+  expect(book.worksheets.map(sheet=>sheet.name)).toEqual(["Préstamos activos",
+      "Préstamos liquidados","Pagos","Penalidades","Refinanciaciones","Cobros por mes","Resumen financiero"]);
+  const summary=book.getWorksheet("Resumen financiero")!;
+  const summaryValue=(label:string)=>summary.getRows(2,summary.rowCount-1)!.find(row=>row.getCell(1).value===label)?.getCell(2).value;
+  expect(summaryValue("DINERO DISPONIBLE EN CAJA")).toBeNull();
+  const firstHeaders=book.getWorksheet("Préstamos activos")!.getRow(1).values as string[];
+  expect(firstHeaders).not.toContain("CAPITAL PENDIENTE");
+  expect(firstHeaders).not.toContain("PENALIDAD COBRADA");
   await page
     .getByRole("combobox", { name: "Filtrar condición" })
     .selectOption("trabajador");
   const filteredPromise = page.waitForEvent("download");
   await page
-    .getByRole("button", { name: "Exportar Excel completo", exact: true })
+    .getByRole("button", { name: "Panel de cobranza Excel", exact: true })
     .click();
   const filtered = await filteredPromise;
   const other = new ExcelJS.Workbook();
   await other.xlsx.readFile((await filtered.path())!);
-  expect(other.getWorksheet("Cartera")!.rowCount).toBe(2);
-  expect(other.getWorksheet("Cartera")!.getCell("F2").value).toBe(
+  expect(other.getWorksheet("Préstamos activos")!.rowCount).toBe(2);
+  const metric=(sheet:import("exceljs").Worksheet,label:string)=>sheet.getRows(2,sheet.rowCount-1)!.find(row=>row.getCell(1).value===label)?.getCell(2).value;
+  expect(metric(other.getWorksheet("Resumen financiero")!,"Saldo total por cobrar")).toBe(summaryValue("Saldo total por cobrar"));
+  expect(other.getWorksheet("Préstamos activos")!.getCell("F2").value).toBe(
     "Luis Trabajador",
   );
 });
@@ -1007,7 +1048,7 @@ test("periodo terminado prioriza liquidación urgente en panel, cliente, WhatsAp
     .getByRole("button", { name: "Ver detalle de Ana Socia", exact: true })
     .click();
   const sheet = page.getByRole("dialog");
-  await expect(sheet).toContainText("Debe liquidar el 100 % del Saldo");
+  await expect(sheet).toContainText("Puedes liquidar el préstamo o refinanciarlo");
   const href = await sheet
     .getByRole("link", { name: "Recordar pago por WhatsApp" })
     .getAttribute("href");
@@ -1020,15 +1061,16 @@ test("periodo terminado prioriza liquidación urgente en panel, cliente, WhatsAp
     .click();
   await expect(sheet.getByLabel("Monto (S/)")).toHaveValue("870.00");
   await page.keyboard.press("Escape");
+  await navigateModule(page, "Reportes");
   const downloadPromise = page.waitForEvent("download");
   await page
-    .getByRole("button", { name: "Exportar Excel completo", exact: true })
+    .getByRole("button", { name: "Panel de cobranza Excel", exact: true })
     .click();
   const download = await downloadPromise;
   const ExcelJS = await import("exceljs");
   const book = new ExcelJS.default.Workbook();
   await book.xlsx.readFile((await download.path())!);
-  const cartera = book.getWorksheet("Cartera")!;
+  const cartera = book.getWorksheet("Préstamos activos")!;
   const stateColumn = (cartera.getRow(1).values as string[]).findIndex(
     (v) => v === "ESTADO",
   );
@@ -1067,7 +1109,7 @@ for (const width of [375, 1440])
     await expect(maria).not.toContainText("Vence hoy");
     await expect(luis).not.toHaveClass(/payment-due-today/);
     await expect(luis).toContainText("En mora");
-    await expect(table.locator("thead th")).toHaveCount(6);
+    await expect(table.locator("thead th")).toHaveCount(7);
     const light = await ana.evaluate(
       (el) => getComputedStyle(el).backgroundColor,
     );
@@ -1077,9 +1119,7 @@ for (const width of [375, 1440])
       fullPage: true,
     });
     await page.emulateMedia({ colorScheme: "dark" });
-    expect(
-      await ana.evaluate((el) => getComputedStyle(el).backgroundColor),
-    ).toBe("rgb(53, 36, 63)");
+    await expect(ana).toHaveCSS("background-color", "rgb(53, 36, 63)");
     await page.screenshot({
       path: `test-results/due-today-${width}-dark.png`,
       fullPage: true,
@@ -1184,6 +1224,974 @@ test("el botón de apariencia también funciona al ingresar, con almacenamiento 
   ).toBe("rgb(247, 246, 249)");
 });
 
+for (const width of [375, 1440]) {
+  test(`navegación agrupada conserva refinanciaciones y búsqueda única a ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mockSupabase(page, "administrador", await dashboardFixtures());
+    await login(page);
+    await navigateModule(page, "Préstamos");
+    const operations = page.getByRole("navigation", { name: "Operaciones de préstamos" });
+    await expect(operations).toBeVisible();
+    await expect(page.getByRole("searchbox")).toHaveCount(1);
+    await page.getByRole("searchbox").fill("Diego");
+    await operations.getByRole("button", { name: "Refinanciaciones", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Historial de refinanciaciones" })).toBeVisible();
+    await expect(page.getByRole("searchbox")).toHaveValue("Diego");
+    await expect(operations.getByRole("button", { name: "Refinanciaciones", exact: true })).toHaveAttribute("aria-current", "page");
+    if (width < 1024) await page.getByRole("button", { name: "Abrir menú" }).click();
+    const mainMenu = page.getByRole("navigation", { name: "Menú principal" }).filter({ visible: true });
+    await expect(mainMenu.getByRole("button", { name: "Refinanciaciones", exact: true })).toHaveCount(0);
+    await expect(mainMenu.getByRole("button", { name: "Préstamos", exact: true })).toHaveAttribute("aria-current", "page");
+    if (width < 1024) await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Limpiar búsqueda", exact: true }).click();
+    await expect(page.getByRole("searchbox")).toHaveValue("");
+    await page.screenshot({ path: `test-results/navigation-after-${width}.png`, fullPage: true });
+    await page.getByRole("button", { name: "Activar modo noche" }).click();
+    await expect.poll(() => page.getByRole("button", { name: "Actualizar", exact: true }).evaluate(element => getComputedStyle(element).backgroundColor)).toBe("rgb(33, 28, 38)");
+    await page.screenshot({ path: `test-results/navigation-after-dark-${width}.png`, fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+  });
+}
+
+
+for (const width of [375, 1440]) {
+  test(`inicio simplificado con seis módulos y gráficos a ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const fixtures = await dashboardFixtures();
+    const { limaDate, addDays } = await import("../src/lib/portal");
+    const today = limaDate();
+    fixtures.installment_balances[0].due_date = addDays(today, -2);
+    fixtures.installment_balances[3].due_date = addDays(today, 3);
+    await mockSupabase(page, "administrador", fixtures);
+    await login(page);
+    await expect(page.getByRole("heading", { name: "Inicio", exact: true })).toBeVisible();
+    await expect(page.getByText("Capital prestado", { exact: true })).not.toBeVisible();
+    await expect(page.getByRole("searchbox")).toHaveCount(0);
+    await expect(page.getByRole("table", { name: "Cronograma de cobros" })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Gráficos financieros de todo el historial" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Exportar Excel completo" })).toHaveCount(0);
+    if (width < 1024) await page.getByRole("button", { name: "Abrir menú" }).click();
+    const menu = page.getByRole("navigation", { name: "Menú principal" }).filter({ visible: true });
+    await expect(menu.getByRole("button")).toHaveCount(6);
+    if (width < 1024) await page.keyboard.press("Escape");
+    await page.mouse.move(0, 0);
+    await page.screenshot({ path: `test-results/inicio-operativo-${width}.png`, fullPage: true });
+    await navigateModule(page, "Préstamos");
+    await expect(page.getByRole("table", { name: "Panel general de préstamos" })).toBeVisible();
+    await expect(page.getByRole("table", { name: "Cartera de préstamos", exact: true })).toHaveCount(0);
+    await openNewLoan(page);
+    await expect(page.getByLabel("Monto del préstamo (S/)", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Cancelar", exact: true }).click();
+    await navigateModule(page, "Configuración");
+    await page.getByRole("button", { name: "Revisar Excel", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Configuración", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  });
+}
+
+test("consulta sin permisos recibe cambios Realtime y conserva controles de solo lectura", async ({ page }) => {
+  const fixtures = await dashboardFixtures();
+  const sockets: { socket: import('@playwright/test').WebSocketRoute; topic: string; ids: number[] }[] = [];
+  await page.routeWebSocket(/wss:\/\/pm-e2e\.supabase\.co\/.*/, socket => {
+    socket.onMessage(raw => {
+      const [join_ref, ref, topic, event, payload] = JSON.parse(String(raw));
+      const message = { join_ref, ref, topic, event, payload };
+      if (message.event !== "phx_join") return;
+      const changes = message.payload.config.postgres_changes.map((change: Record<string, unknown>, index: number) => ({ ...change, id: index + 1 }));
+      sockets.push({ socket, topic: message.topic, ids: changes.map((change: { id: number }) => change.id) });
+      socket.send(JSON.stringify([message.join_ref, message.ref, message.topic, "phx_reply", { status: "ok", response: { postgres_changes: changes } }]));
+    });
+  });
+  const calls = await mockSupabase(page, "jefe", fixtures);
+  await login(page);
+  await expect.poll(() => sockets.length).toBeGreaterThan(0);
+  await expect(page.locator(".home-summary").getByText("S/ 2,430.00", { exact: true })).toBeVisible();
+  fixtures.loans[0].capital_pending = 71000;
+  for (const { socket, topic, ids } of sockets) socket.send(JSON.stringify([null, null, topic, "postgres_changes", { ids, data: { schema: "public", table: "loans", type: "UPDATE", commit_timestamp: new Date().toISOString(), columns: [], record: fixtures.loans[0], old_record: {}, errors: null } }]));
+  await expect(page.locator(".home-summary").getByText("S/ 2,330.00", { exact: true })).toBeVisible();
+  await navigateModule(page, "Préstamos");
+  await expect(page.getByRole("button", { name: "Nuevo préstamo" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Ver detalle de Ana Socia", exact: true }).click();
+  const detail = page.getByRole("dialog");
+  await expect(detail.getByRole("button", { name: /Confirmar pago|Confirmar refinanciación|Liquidar préstamo/ })).toHaveCount(0);
+  expect(calls).toHaveLength(0);
+});
+
+test("consulta actualiza saldos cada 30 segundos aunque Realtime no esté habilitado", async ({ page }) => {
+  await page.clock.install();
+  const fixtures = await dashboardFixtures();
+  const calls = await mockSupabase(page, "jefe", fixtures);
+  await login(page);
+  await expect(page.locator(".home-summary").getByText("S/ 2,430.00", { exact: true })).toBeVisible();
+  fixtures.loans[0].capital_pending = 61000;
+  await page.clock.fastForward(31000);
+  await page.clock.runFor(500);
+  await expect(page.locator(".home-summary").getByText("S/ 2,230.00", { exact: true })).toBeVisible();
+  expect(calls).toHaveLength(0);
+});
+
+
+for (const role of ["administrador", "jefe"] as const) {
+  for (const width of [375, 1440]) {
+    test(`Panel general vuelve al menú para ${role} a ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await mockSupabase(page, role, await dashboardFixtures());
+      await login(page);
+      await navigateModule(page, "Panel general");
+      await expect(page.getByRole("heading", { name: "Panel general", exact: true })).toBeVisible();
+      const table = page.getByRole("table", { name: "Panel general de préstamos" });
+      await expect(table.getByRole("columnheader")).toHaveText(["Prestatario", "Fecha del préstamo", "N.º de cuotas", "Día de pago", "Saldo", "Cuota semanal", "Estado"]);
+      await expect(page.getByRole("button", { name: "Nuevo préstamo", exact: true })).toHaveCount(0);
+      await table.getByRole("button", { name: "Ver detalle de Ana Socia", exact: true }).click();
+      await expect(page.getByRole("dialog")).toContainText("Ana Socia");
+      await page.keyboard.press("Escape");
+      if (width < 1024) await page.getByRole("button", { name: "Abrir menú" }).click();
+      await expect(page.getByRole("navigation", { name: "Menú principal" }).filter({ visible: true }).getByRole("button", { name: "Panel general", exact: true })).toHaveAttribute("aria-current", "page");
+      if (width < 1024) await page.keyboard.press("Escape");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+    });
+  }
+}
+
+
+for (const width of [375, 1440]) {
+  test(`refinancia vencidos después del periodo con interés pagado a ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const fixtures = await dashboardFixtures();
+    const { limaDate, addDays } = await import("../src/lib/portal");
+    const today = limaDate();
+    fixtures.loan_periods[1].end_date = addDays(today, -1);
+    const calls = await mockSupabase(page, "administrador", fixtures);
+    await login(page);
+    await navigateModule(page, "Panel general");
+    await page.getByRole("button", { name: "Ver detalle de Luis Trabajador", exact: true }).click();
+    const detail = page.getByRole("dialog");
+    await detail.getByText("Refinanciar préstamo", { exact: true }).click();
+    await expect(detail.getByText("Hay cuotas vencidas pendientes de pago.")).toHaveCount(0);
+    const confirm = detail.getByRole("button", { name: "Confirmar refinanciación", exact: true });
+    await expect(confirm).toBeEnabled();
+    page.once("dialog", dialog => dialog.accept());
+    await confirm.click();
+    await expect.poll(() => calls.length).toBe(1);
+    expect(calls[0].name).toBe("refinance_loan");
+    expect(calls[0].body.p_loan).toBe("loan-1");
+    expect(calls[0].body.p_request).toMatch(/^[0-9a-f-]{36}$/);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  });
+}
+
+for (const endOffset of [0, 1]) {
+  test(`refinanciación bloqueada cuando faltan ${endOffset} días para terminar el periodo`, async ({ page }) => {
+    const fixtures = await dashboardFixtures();
+    const { limaDate, addDays } = await import("../src/lib/portal");
+    fixtures.loan_periods[1].end_date = addDays(limaDate(), endOffset);
+    const calls = await mockSupabase(page, "administrador", fixtures);
+    await login(page);
+    await navigateModule(page, "Panel general");
+    await page.getByRole("button", { name: "Ver detalle de Luis Trabajador", exact: true }).click();
+    const detail = page.getByRole("dialog");
+    await detail.getByText("Refinanciar préstamo", { exact: true }).click();
+    await expect(detail.getByText(/El periodo aún no ha terminado/)).toBeVisible();
+    await expect(detail.getByRole("button", { name: "Confirmar refinanciación", exact: true })).toBeDisabled();
+    expect(calls).toHaveLength(0);
+  });
+}
+
+
+for (const [amount, months, rate, interest, quota] of [[250,1,700,17.5,66.88],[500,2,700,70,71.25],[1500,1,600,90,397.5]] as const) {
+  test(`monto libre ${amount} a ${months} meses usa tasa automática y confirma datos`, async ({ page }) => {
+    const calls = await mockSupabase(page, "administrador");
+    await login(page);
+    await navigateModule(page, "Préstamos");
+    await openNewLoan(page);
+    await page.getByLabel("Monto del préstamo (S/)", { exact: true }).fill(String(amount));
+    await page.getByLabel("Plazo del préstamo", { exact: true }).selectOption(String(months));
+    await expect(page.getByText("Tasa mensual:")).toContainText(`${rate/100} %`);
+    await page.getByRole("button", { name: "Revisar cronograma" }).click();
+    await expect(page.getByText(/Capital: S\//)).toContainText(`Interés: S/ ${interest.toFixed(2)}`);
+    await expect(page.getByText(new RegExp(`Cuota ${months*4} ·`))).toContainText(`S/ ${quota.toFixed(2)}`);
+    await page.getByRole("combobox", { name: "Cliente", exact: true }).selectOption(clientId);
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "Confirmar desembolso", exact: true }).click();
+    await expect.poll(() => calls.length).toBe(1);
+    expect(calls[0].body).toMatchObject({p_capital:amount*100,p_rate:rate,p_months:months});
+  });
+}
+
+test("monto o plazo nuevo invalida el cronograma antes de desembolsar", async ({ page }) => {
+  const calls = await mockSupabase(page, "administrador");
+  await login(page);
+  await navigateModule(page, "Préstamos");
+  await openNewLoan(page);
+  const amount = page.getByLabel("Monto del préstamo (S/)", { exact: true });
+  await amount.fill("1500");
+  await page.getByRole("button", { name: "Revisar cronograma" }).click();
+  await expect(page.getByRole("button", { name: "Confirmar desembolso" })).toBeVisible();
+  await amount.fill("500");
+  await expect(page.getByRole("button", { name: "Confirmar desembolso" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Revisar cronograma" }).click();
+  await page.getByLabel("Plazo del préstamo", { exact: true }).selectOption("2");
+  await expect(page.getByRole("button", { name: "Confirmar desembolso" })).toHaveCount(0);
+  expect(calls).toHaveLength(0);
+});
+
+
+test("servidor antiguo explica que falta aplicar la actualización de Supabase", async ({ page }) => {
+  const fixtures = await dashboardFixtures();
+  const { limaDate, addDays } = await import("../src/lib/portal");
+  fixtures.loan_periods[1].end_date = addDays(limaDate(), -1);
+  await mockSupabase(page, "administrador", fixtures);
+  await page.route("https://pm-e2e.supabase.co/rest/v1/rpc/refinance_loan", route => route.request().method() === "OPTIONS" ? route.fallback() : route.fulfill({status:400,contentType:"application/json",headers:{"access-control-allow-origin":"*"},body:JSON.stringify({message:"Cuotas vencidas pendientes",code:"P0001"})}));
+  await login(page);
+  await navigateModule(page, "Panel general");
+  await page.getByRole("button", { name: "Ver detalle de Luis Trabajador", exact: true }).click();
+  const detail = page.getByRole("dialog");
+  await detail.getByText("Refinanciar préstamo", { exact: true }).click();
+  page.once("dialog", dialog => dialog.accept());
+  await detail.getByRole("button", { name: "Confirmar refinanciación", exact: true }).click();
+  await expect(detail.getByText(/Actualización de Supabase pendiente/)).toBeVisible();
+  await expect(detail.getByRole("link", { name: "Abrir actualización SQL 007" })).toHaveAttribute("href", /202610150007_refinance_date_and_term.sql$/);
+});
+
+for (const width of [375, 1440]) {
+  test(`refinanciación elige fecha y ocho cuotas con revisión y confirmación a ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const fixtures = await dashboardFixtures();
+    const { limaDate, addDays, dateLabel } = await import("../src/lib/portal");
+    const today = limaDate();
+    fixtures.loan_periods[1].end_date = addDays(today, -7);
+    const calls = await mockSupabase(page, "administrador", fixtures);
+    await login(page);
+    await navigateModule(page, "Panel general");
+    await page.getByRole("button", { name: "Ver detalle de Luis Trabajador", exact: true }).click();
+    const detail = page.getByRole("dialog");
+    await detail.getByText("Refinanciar préstamo", { exact: true }).click();
+    const date = detail.getByLabel("Fecha de refinanciación", { exact: true });
+    await expect(date).toHaveValue(addDays(today, -6));
+    await date.fill(addDays(today, -2));
+    await detail.getByRole("combobox", { name: "Plazo de refinanciación", exact: true }).selectOption("2");
+    await expect(detail.getByText(/Nuevo interés:/)).toContainText("S/ 120.00");
+    await expect(detail.getByText(/Nuevo interés:/)).toContainText("S/ 930.00");
+    await expect(detail.getByText(/Cuota 8 ·/)).toContainText("S/ 116.25");
+    await expect(detail.getByText(/Cuota 8 ·/)).toContainText(dateLabel(addDays(today, 54)));
+    await date.fill(addDays(today, 1));
+    const confirm = detail.getByRole("button", { name: "Confirmar refinanciación", exact: true });
+    await expect(confirm).toBeDisabled();
+    await date.fill(addDays(today, -7));
+    await expect(confirm).toBeDisabled();
+    await date.fill(addDays(today, -2));
+    await expect(confirm).toBeEnabled();
+    page.once("dialog", dialog => dialog.dismiss());
+    await confirm.click();
+    expect(calls).toHaveLength(0);
+    await page.screenshot({path:`test-results/refinance-options-${width}.png`,fullPage:true});
+    page.once("dialog", dialog => dialog.accept());
+    await confirm.click();
+    await expect.poll(() => calls.length).toBe(1);
+    expect(calls[0].name).toBe("refinance_loan");
+    expect(calls[0].body).toMatchObject({p_loan:"loan-1",p_start:addDays(today,-2),p_months:2});
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  });
+}
+
+async function returnToTab(page: Page) {
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+}
+
+for (const width of [375, 1440]) {
+  test(`volver a pestaña conserva detalle, monto escrito y posición durante actualización lenta a ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const fixtures = await dashboardFixtures();
+    await mockSupabase(page, "administrador", fixtures);
+    await login(page);
+    await navigateModule(page, "Panel general");
+    await page.getByRole("button", { name: "Ver detalle de Ana Socia", exact: true }).click();
+    const detail = page.getByRole("dialog");
+    const amount = detail.getByLabel("Monto (S/)", { exact: true });
+    await amount.fill("123.45");
+    const originalInput = await amount.elementHandle();
+    const top = await detail.locator(".overscroll-contain").evaluate(element => element.scrollTop);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let refreshing = false;
+    await page.route(/https:\/\/pm-e2e\.supabase\.co\/rest\/v1\/loans(?:\?|$)/, async route => {
+      if (route.request().method() === "GET") { refreshing = true; await gate; }
+      await route.fallback();
+    });
+    await returnToTab(page);
+    await expect.poll(() => refreshing).toBe(true);
+    await expect(detail).toBeVisible();
+    await expect(amount).toHaveValue("123.45");
+    expect(await originalInput!.evaluate(element => element.isConnected)).toBe(true);
+    expect(await detail.locator(".overscroll-contain").evaluate(element => element.scrollTop)).toBe(top);
+    await expect(page.getByText("Cargando operaciones…", { exact: true })).toHaveCount(0);
+    fixtures.loans[0].capital_pending = 71000;
+    release();
+    await expect(detail.getByText("S/ 710.00", { exact: true }).first()).toBeVisible();
+    await expect(amount).toHaveValue("123.45");
+    expect(await originalInput!.evaluate(element => element.isConnected)).toBe(true);
+  });
+}
+
+test("clientes mantiene saldos, WhatsApp y cuenta abierta mientras sincroniza", async ({ page }) => {
+  const fixtures = await dashboardFixtures();
+  await mockSupabase(page, "jefe", fixtures);
+  await login(page);
+  await navigateModule(page, "Clientes");
+  const client = page.getByRole("article", { name: "Ana Socia", exact: true });
+  await client.getByRole("button", { name: /^Ana Socia/ }).click();
+  const account = client.getByRole("region", { name: "Cuenta de Ana Socia" });
+  await expect(account).toBeVisible();
+  await expect(client.getByRole("link", { name: "WhatsApp de Ana Socia" })).toBeVisible();
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let refreshing = false;
+  await page.route(/https:\/\/pm-e2e\.supabase\.co\/rest\/v1\/loans(?:\?|$)/, async route => {
+    if (route.request().method() === "GET") { refreshing = true; await gate; }
+    await route.fallback();
+  });
+  await returnToTab(page);
+  await expect.poll(() => refreshing).toBe(true);
+  await expect(account).toBeVisible();
+  await expect(client.getByRole("link", { name: "WhatsApp de Ana Socia" })).toBeVisible();
+  await expect(client.getByText("Cargando…", { exact: true })).toHaveCount(0);
+  await expect(client.getByRole("definition").filter({ hasText: "S/ 870.00" }).first()).toBeVisible();
+  fixtures.loans[0].capital_pending = 61000;
+  release();
+  await expect(client.getByText("S/ 670.00", { exact: true }).first()).toBeVisible();
+  await expect(account).toBeVisible();
+});
+
+test("foco de captura sin cambio de visibilidad no vuelve a solicitar operaciones", async ({ page }) => {
+  await page.clock.install();
+  await mockSupabase(page, "administrador", await dashboardFixtures());
+  await login(page);
+  await expect(page.locator(".home-summary").getByText("S/ 2,430.00", { exact: true })).toBeVisible();
+  let requests = 0;
+  await page.route(/https:\/\/pm-e2e\.supabase\.co\/rest\/v1\/loans(?:\?|$)/, async route => { requests++; await route.fallback(); });
+  await page.evaluate(() => {
+    for (let i = 0; i < 3; i++) { window.dispatchEvent(new Event("focus")); document.dispatchEvent(new Event("visibilitychange")); }
+  });
+  await page.clock.runFor(600);
+  expect(requests).toBe(0);
+  await expect(page.locator(".home-summary").getByText("S/ 2,430.00", { exact: true })).toBeVisible();
+});
+
+
+test("eliminar cliente exige DNI y motivo, permite cancelar y actualiza la lista", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 900 });
+  await page.emulateMedia({ colorScheme: "dark" });
+  const tables = await dashboardFixtures();
+  const fixture = { ...tables, client_deletion_preview: {
+    client_id: "client-0", full_name: "Ana Socia", dni: "12345670", stand_code: "S-01",
+    loans_count: 1, payments_count: 2, balance_cents: "87000", paid_cents: "19000", confirmation_token: "a".repeat(32),
+  }};
+  const calls = await mockSupabase(page, "administrador", fixture);
+  await login(page);
+  await navigateModule(page, "Clientes");
+  const ana = page.getByRole("article", { name: "Ana Socia", exact: true });
+  await ana.getByRole("button", { name: /^Ana Socia/ }).click();
+  await ana.getByRole("button", { name: "Eliminar cliente Ana Socia", exact: true }).click();
+  let dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("irreversible");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await expect(dialog).toContainText("S/ 870.00");
+  await expect(dialog).toContainText("S/ 190.00");
+  await expect(dialog.getByRole("button", { name: "Eliminar definitivamente", exact: true })).toBeDisabled();
+  await dialog.getByRole("button", { name: "Cancelar", exact: true }).click();
+  expect(calls.some((c) => c.name === "delete_client")).toBe(false);
+  await ana.getByRole("button", { name: "Eliminar cliente Ana Socia", exact: true }).click();
+  dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Escribe el DNI del cliente para confirmar").fill("87654321");
+  await dialog.getByLabel("Motivo de la eliminación").fill("Registro por error");
+  await expect(dialog.getByRole("button", { name: "Eliminar definitivamente", exact: true })).toBeDisabled();
+  await dialog.getByLabel("Escribe el DNI del cliente para confirmar").fill("12345670");
+  await dialog.getByRole("button", { name: "Eliminar definitivamente", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(ana).toHaveCount(0);
+  await expect(page.getByRole("article", { name: "Luis Trabajador", exact: true })).toBeVisible();
+  expect(calls.filter((c) => c.name === "delete_client")).toEqual([{ name: "delete_client", body: {
+    p_client: "client-0", p_dni: "12345670", p_reason: "Registro por error", p_confirmation_token: "a".repeat(32),
+  }}]);
+});
+
+test("consulta no ofrece eliminar clientes", async ({ page }) => {
+  await mockSupabase(page, "jefe", await dashboardFixtures());
+  await login(page);
+  await navigateModule(page, "Clientes");
+  const ana = page.getByRole("article", { name: "Ana Socia", exact: true });
+  await ana.getByRole("button", { name: /^Ana Socia/ }).click();
+  await expect(ana.getByRole("region")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Eliminar cliente/ })).toHaveCount(0);
+});
+
+test("eliminación exige revisar de nuevo si cambia la deuda y explica si falta SQL", async ({ page }) => {
+  const calls = await mockSupabase(page, "administrador", await dashboardFixtures());
+  let changed = false;
+  await page.route("**/rest/v1/rpc/preview_client_deletion", async (route) => {
+    if (route.request().method() === "OPTIONS") { await route.fallback(); return; }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      client_id: "client-0", full_name: "Ana Socia", dni: "12345670", stand_code: "S-01",
+      loans_count: 1, payments_count: changed ? 2 : 1, balance_cents: changed ? "86000" : "87000", paid_cents: "19000", confirmation_token: (changed ? "b" : "a").repeat(32),
+    }) });
+  });
+  await page.route("**/rest/v1/rpc/delete_client", async (route) => {
+    if (route.request().method() === "OPTIONS") { await route.fallback(); return; }
+    changed = true;
+    await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ message: "Los datos cambiaron. Actualiza el resumen antes de eliminar", code: "P0001" }) });
+  });
+  await login(page);
+  await navigateModule(page, "Clientes");
+  const ana = page.getByRole("article", { name: "Ana Socia", exact: true });
+  await ana.getByRole("button", { name: /^Ana Socia/ }).click();
+  await ana.getByRole("button", { name: "Eliminar cliente Ana Socia", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("S/ 870.00");
+  await dialog.getByLabel("Escribe el DNI del cliente para confirmar").fill("12345670");
+  await dialog.getByLabel("Motivo de la eliminación").fill("Registro por error");
+  const confirm = dialog.getByRole("button", { name: "Eliminar definitivamente", exact: true });
+  await confirm.click();
+  await expect(dialog).toContainText("Los datos cambiaron");
+  await expect(confirm).toBeDisabled();
+  await dialog.getByRole("button", { name: "Actualizar resumen" }).click();
+  await expect(dialog).toContainText("S/ 860.00");
+  await expect(dialog.getByLabel("Escribe el DNI del cliente para confirmar")).toHaveValue("");
+  await expect(confirm).toBeDisabled();
+  await dialog.getByRole("button", { name: "Cancelar", exact: true }).click();
+  await page.route("**/rest/v1/rpc/preview_client_deletion", (route) => route.request().method() === "OPTIONS" ? route.fallback() : route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ code: "PGRST202", message: "Could not find the function in the schema cache" }) }));
+  await ana.getByRole("button", { name: "Eliminar cliente Ana Socia", exact: true }).click();
+  await expect(dialog).toContainText("202610190008_delete_client.sql");
+  await expect(confirm).toBeDisabled();
+  expect(calls.some((c) => c.name === "delete_client")).toBe(false);
+});
+
+
+function cashFixture(configured = true) {
+  return { configured, opening_cents: configured ? "500000" : "0", contributions_cents: "0", withdrawals_cents: "0", received_cents: "25000", disbursed_cents: "100000", interest_cents: "6000", month_interest_cents: "1000", balance_cents: configured ? "425000" as string | null : null, as_of: "2026-10-27" };
+}
+
+test("caja permite configurar dinero inicial, registrar aportes y retiros sin duplicar cobros", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 900 });
+  await page.emulateMedia({ colorScheme: "dark" });
+  const calls = await mockSupabase(page, "administrador", { ...await dashboardFixtures(), cash_summary: cashFixture(false) });
+  await login(page);
+  const cash = page.getByRole("region", { name: "Caja y ganancias", exact: true });
+  await expect(cash).toContainText("Sin configurar");
+  await expect(cash).toContainText("S/ 60.00");
+  await cash.getByRole("button", { name: /^(Ver caja|Configurar mi caja)$/ }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("no el efectivo que tienes hoy");
+  await dialog.getByLabel("Dinero inicial (S/)", { exact: true }).fill("5000");
+  await dialog.getByLabel("Motivo del movimiento").fill("Capital de inicio");
+  await dialog.getByRole("button", { name: "Guardar dinero inicial", exact: true }).click();
+  await expect(dialog.getByText("Movimiento registrado. Se está actualizando el saldo.")).toBeVisible();
+  await expect(dialog.getByLabel("Tipo de movimiento")).toBeVisible();
+  await expect(dialog).toContainText("S/ 4,250.00");
+  await expect(dialog.getByRole("button", { name: "Guardar dinero inicial", exact: true })).toHaveCount(0);
+  await dialog.getByLabel("Importe (S/)", { exact: true }).fill("100");
+  await dialog.getByLabel("Motivo del movimiento").fill("Nuevo aporte");
+  await dialog.getByRole("button", { name: "Registrar movimiento", exact: true }).click();
+  await expect(dialog).toContainText("S/ 4,350.00");
+  await dialog.getByLabel("Tipo de movimiento").selectOption("retiro");
+  await dialog.getByLabel("Importe (S/)", { exact: true }).fill("50.25");
+  await dialog.getByLabel("Motivo del movimiento").fill("Retiro gerencia");
+  await dialog.getByRole("button", { name: "Registrar movimiento", exact: true }).click();
+  await expect(dialog).toContainText("S/ 4,299.75");
+  await expect(dialog.getByRole("table", { name: "Aportes y retiros de caja" })).toContainText("Retiro gerencia");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  expect(calls.filter(c => c.name === "record_cash_movement").map(c => ({ kind: c.body.p_kind, amount: c.body.p_amount }))).toEqual([{ kind: "apertura", amount: 500000 }, { kind: "aporte", amount: 10000 }, { kind: "retiro", amount: 5025 }]);
+});
+
+test("consulta muestra caja y ganancia histórica sin permisos de escritura ni filtros de clientes", async ({ page }) => {
+  const calls = await mockSupabase(page, "jefe", { ...await dashboardFixtures(), cash_summary: cashFixture() });
+  await login(page);
+  const cash = page.getByRole("region", { name: "Caja y ganancias", exact: true });
+  await expect(cash).toContainText("S/ 4,250.00");
+  await expect(cash).toContainText("S/ 60.00");
+  await navigateModule(page,"Panel general");
+  await page.getByRole("searchbox").fill("Ana");
+  await navigateModule(page,"Inicio");
+  await expect(page.getByRole("searchbox")).toHaveCount(0);
+  await expect(cash).toContainText("S/ 4,250.00");
+  await cash.getByRole("button", { name: /^(Ver caja|Configurar mi caja)$/ }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Interés cobrado este mes");
+  await expect(dialog.getByLabel("Tipo de movimiento")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: /Registrar movimiento|Guardar dinero inicial/ })).toHaveCount(0);
+  expect(calls.some(c => c.name === "record_cash_movement")).toBe(false);
+});
+
+test("caja negativa muestra advertencia y sigue operativa al volver a la pestaña", async ({ page }) => {
+  const cashData = { ...cashFixture(), balance_cents: "-20000", withdrawals_cents: "445000" };
+  await mockSupabase(page, "administrador", { ...await dashboardFixtures(), cash_summary: cashData });
+  await login(page);
+  const cash = page.getByRole("region", { name: "Caja y ganancias", exact: true });
+  await expect(cash).toContainText("−S/ 200.00");
+  await expect(cash).toContainText("La caja calculada es negativa");
+  await cash.getByRole("button", { name: /^(Ver caja|Configurar mi caja)$/ }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Importe (S/)", { exact: true }).fill("200");
+  await returnToTab(page);
+  await expect(dialog.getByLabel("Importe (S/)", { exact: true })).toHaveValue("200");
+  await expect(dialog).toBeVisible();
+});
+
+test("sin migración de caja se explica el paso pendiente sin bloquear préstamos", async ({ page }) => {
+  await mockSupabase(page, "administrador", await dashboardFixtures());
+  await page.route("**/rest/v1/rpc/cash_summary", route => route.request().method() === "OPTIONS" ? route.fallback() : route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ code: "PGRST202", message: "Could not find the function" }) }));
+  await login(page);
+  const cash = page.getByRole("region", { name: "Caja y ganancias", exact: true });
+  await expect(cash).toContainText("202610270009_cash.sql");
+  await expect(cash.getByText("S/ 0.00", { exact: true })).toHaveCount(0);
+  await navigateModule(page, "Panel general");
+  await expect(page.getByRole("table", { name: "Panel general de préstamos" })).toBeVisible();
+});
+
+
+async function overduePenaltyFixture() {
+ const tables=await dashboardFixtures();
+ const {limaDate,addDays}=await import("../src/lib/portal");
+ const today=limaDate();
+ tables.loan_periods[0].start_date=addDays(today,-40);
+ tables.loan_periods[0].end_date=addDays(today,-12);
+ return tables;
+}
+
+test("penalidad opcional suma aparte al liquidar y queda visible en historial",async({page})=>{
+ await page.setViewportSize({width:375,height:900});
+ await page.emulateMedia({colorScheme:"dark"});
+ const calls=await mockSupabase(page,"administrador",await overduePenaltyFixture());
+ await login(page);await navigateModule(page,"Panel general");
+ await page.getByRole("button",{name:"Ver detalle de Ana Socia",exact:true}).click();
+ const detail=page.getByRole("dialog");
+ await detail.getByRole("button",{name:"Penalidad",exact:true}).click();
+ await expect(detail.getByRole("button",{name:"Penalidad",exact:true})).toHaveAttribute("aria-pressed","true");
+ await detail.getByLabel("Penalidad (S/)",{exact:true}).fill("25.50");
+ await detail.getByLabel("Motivo de la penalidad").fill("Plazo terminado");
+ await expect(detail.getByLabel("Monto (S/)",{exact:true})).toHaveValue("870.00");
+ await expect(detail.getByRole("group",{name:"Penalidad opcional por plazo vencido"})).toContainText("S/ 895.50");
+ let confirmation="";
+ page.once("dialog",async dialog=>{confirmation=dialog.message();await dialog.accept();});
+ await detail.getByRole("button",{name:"Confirmar liquidación con penalidad",exact:true}).click();
+ await expect(detail.getByText("Pago registrado correctamente.",{exact:true})).toBeVisible();
+ expect(confirmation).toMatch(/S\/\s*25\.50/);expect(confirmation).toMatch(/S\/\s*895\.50/);
+ const request=calls.find(c=>c.name==="settle_loan_with_penalty")!;
+ expect(request.body.p_expected_balance).toBe(87000);expect(request.body.p_penalty).toBe(2550);expect(request.body.p_reason).toBe("Plazo terminado");
+ const history=detail.getByRole("table",{name:"Pagos de este préstamo",exact:true});
+ await expect(history).toContainText("S/ 895.50");await expect(history).toContainText("S/ 25.50");await expect(history).toContainText("Plazo terminado");
+ await expect(detail.getByRole("button",{name:"Penalidad",exact:true})).toHaveCount(0);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+ await page.keyboard.press("Escape");
+ await navigateModule(page,"Reportes");
+ const register=page.getByRole("table",{name:"Registro de penalidades",exact:true});
+ await expect(register).toContainText("S/ 25.50");await expect(register).toContainText("Plazo terminado");await expect(register).toContainText("Ana Socia");
+});
+
+test("penalidad puede desactivarse y no se cobra en una liquidación normal",async({page})=>{
+ const calls=await mockSupabase(page,"administrador",await overduePenaltyFixture());
+ await login(page);await navigateModule(page,"Panel general");await page.getByRole("button",{name:"Ver detalle de Ana Socia",exact:true}).click();
+ const detail=page.getByRole("dialog");
+ await detail.getByRole("button",{name:"Penalidad",exact:true}).click();
+ await detail.getByLabel("Penalidad (S/)",{exact:true}).fill("50");
+ await detail.getByRole("button",{name:"Liquidar préstamo",exact:true}).click();
+ await expect(detail.getByLabel("Penalidad (S/)",{exact:true})).toHaveCount(0);
+ page.once("dialog",dialog=>dialog.accept());
+ await detail.getByRole("button",{name:"Confirmar pago",exact:true}).click();
+ await expect(detail.getByText("Pago registrado correctamente.",{exact:true})).toBeVisible();
+ expect(calls.filter(c=>c.name==="record_payment")[0].body.p_amount).toBe(87000);
+ expect(calls.some(c=>c.name==="settle_loan_with_penalty")).toBe(false);
+});
+
+for(const role of ["administrador","jefe"] as const) test(`penalidad respeta plazo completo y permisos ${role}`,async({page})=>{
+ await mockSupabase(page,role,await overduePenaltyFixture());await login(page);await navigateModule(page,"Panel general");
+ await page.getByRole("button",{name:role==="administrador"?"Ver detalle de Luis Trabajador":"Ver detalle de Ana Socia",exact:true}).click();
+ await expect(page.getByRole("dialog").getByRole("button",{name:"Penalidad",exact:true})).toHaveCount(0);
+});
+
+test("penalidad inválida no envía cobro y migración pendiente permite reintentar",async({page})=>{
+ const calls=await mockSupabase(page,"administrador",await overduePenaltyFixture());
+ await page.route("**/rest/v1/rpc/settle_loan_with_penalty",route=>route.request().method()==="OPTIONS"?route.fallback():route.fulfill({status:404,contentType:"application/json",body:JSON.stringify({code:"PGRST202",message:"Could not find the function in the schema cache"})}));
+ await login(page);await navigateModule(page,"Panel general");await page.getByRole("button",{name:"Ver detalle de Ana Socia",exact:true}).click();
+ const detail=page.getByRole("dialog");await detail.getByRole("button",{name:"Penalidad",exact:true}).click();
+ await detail.getByLabel("Penalidad (S/)",{exact:true}).fill("0");await detail.getByLabel("Motivo de la penalidad").fill("Plazo vencido");
+ await detail.getByRole("button",{name:"Confirmar liquidación con penalidad",exact:true}).click();
+ await expect(detail).toContainText("Ingresa una penalidad mayor que cero");
+ expect(calls.some(c=>c.name==="settle_loan_with_penalty")).toBe(false);
+ await detail.getByLabel("Penalidad (S/)",{exact:true}).fill("30");page.once("dialog",dialog=>dialog.accept());
+ await detail.getByRole("button",{name:"Confirmar liquidación con penalidad",exact:true}).click();
+ await expect(detail).toContainText("202611030010_settlement_penalty.sql");
+ await expect(detail.getByLabel("Penalidad (S/)",{exact:true})).toHaveValue("30");
+});
+
+for (const width of [375, 1440]) for (const dark of [false, true]) {
+ test(`apple-design recorrido visual ${width}px ${dark ? 'noche' : 'día'}`, async ({page}) => {
+  await page.setViewportSize({width,height:1000});
+  await page.emulateMedia({colorScheme:dark?'dark':'light'});
+  await mockSupabase(page,'administrador',{...await overduePenaltyFixture(),cash_summary:cashFixture()});
+  const prefix=process.env.PM_VISUAL_BEFORE==='1'?'before':'apple';
+  await page.goto('/');
+  await page.screenshot({path:`test-results/${prefix}-login-${width}-${dark}.png`,fullPage:true});
+  await login(page);
+  for(const moduleName of ['Inicio','Panel general','Clientes','Préstamos','Reportes','Configuración']) {
+   await navigateModule(page,moduleName);
+   await expect(page.getByRole('heading',{name:moduleName,level:1,exact:true})).toBeVisible();
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),moduleName).toBe(false);
+   await page.screenshot({path:`test-results/${prefix}-${moduleName}-${width}-${dark}.png`,fullPage:true});
+  }
+  await navigateModule(page,'Panel general');
+  await expect(page.getByRole('table',{name:'Panel general de préstamos'}).getByRole('columnheader')).toHaveCount(7);
+  await page.getByRole('button',{name:'Ver detalle de Ana Socia',exact:true}).click();
+  const detail=page.getByRole('dialog');
+  await expect(detail.getByRole('button',{name:'Penalidad',exact:true})).toBeVisible();
+  await detail.getByRole('button',{name:'Penalidad',exact:true}).click();
+  await detail.getByLabel('Penalidad (S/)',{exact:true}).fill('25');
+  await expect(detail).toContainText('Total a cobrar');
+  await page.screenshot({path:`test-results/${prefix}-detail-${width}-${dark}.png`,fullPage:true});
+  await page.keyboard.press('Escape');
+  await expect(detail).toHaveCount(0);
+ });
+}
+
+test('apple-design conserva accesibilidad con movimiento reducido, contraste alto y texto grande',async({page})=>{
+ await page.setViewportSize({width:375,height:900});
+ await page.emulateMedia({colorScheme:'dark',reducedMotion:'reduce',contrast:'more'});
+ await mockSupabase(page,'jefe',{...await dashboardFixtures(),cash_summary:cashFixture()});
+ await login(page);
+ await expect(page.locator('.app-toolbar')).toHaveCSS('backdrop-filter','none');
+ await page.evaluate(()=>{document.documentElement.style.fontSize='125%';});
+ for(const moduleName of ['Panel general','Clientes','Reportes','Configuración']) {
+  await navigateModule(page,moduleName);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),moduleName).toBe(false);
+ }
+ const menu=page.getByRole('button',{name:'Abrir menú',exact:true});
+ await menu.focus();await page.keyboard.press('Enter');
+ await expect(page.getByRole('dialog',{name:'Navegación'})).toBeVisible();
+ await expect(page.locator('.mobile-navigation')).toHaveCSS('animation-name','none');
+ await page.keyboard.press('Escape');
+ await expect(menu).toBeFocused();
+ await navigateModule(page,'Clientes');
+ const search=page.getByRole('searchbox');
+ expect(await search.evaluate(el=>parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16);
+});
+
+
+async function openNewLoan(page: Page) {
+ await page.getByRole("button", { name: "Nuevo préstamo", exact: true }).click();
+ const picker=page.locator('select[name="client"]');
+ const id=await picker.locator('option:not([disabled])').evaluateAll(options=>(options as HTMLOptionElement[]).find(option=>option.value)?.value??"");
+ if(id)await picker.selectOption(id);
+}
+
+test('flujo préstamo empieza por la persona y cambiarla invalida la revisión',async({page})=>{
+ const fixtures=await dashboardFixtures();
+ fixtures.clients.push({...fixtures.clients[2],id:'new-borrower',full_name:'Elena Nueva',dni:'44556677',stand_code:'E-10'});
+ const calls=await mockSupabase(page,'administrador',fixtures);
+ await login(page);await navigateModule(page,'Préstamos');
+ await page.getByRole('button',{name:'Nuevo préstamo',exact:true}).click();
+ const picker=page.locator('select[name="client"]');
+ const amount=page.getByLabel('Monto del préstamo (S/)',{exact:true});
+ await expect(picker).toHaveValue('');await expect(amount).toBeDisabled();
+ await expect(page.getByRole('button',{name:'Revisar cronograma',exact:true})).toBeDisabled();
+ expect(await picker.evaluate(el=>Boolean(el.compareDocumentPosition(document.querySelector('input[placeholder="Ej. 1500.00"]')!)&Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+ await picker.selectOption('client-2');await amount.fill('500');
+ await page.getByRole('button',{name:'Revisar cronograma',exact:true}).click();
+ let review=page.getByRole('region',{name:'Revisión del préstamo',exact:true});
+ await expect(review).toContainText('Maria Liquidada');await expect(review).toContainText('12345672');
+ await picker.selectOption('new-borrower');
+ await expect(page.getByRole('button',{name:'Confirmar desembolso',exact:true})).toHaveCount(0);
+ await page.getByRole('button',{name:'Revisar cronograma',exact:true}).click();
+ review=page.getByRole('region',{name:'Revisión del préstamo',exact:true});
+ await expect(review).toContainText('Elena Nueva');await expect(review).toContainText('44556677');
+ page.once('dialog',d=>d.dismiss());await page.getByRole('button',{name:'Confirmar desembolso',exact:true}).click();
+ expect(calls.some(c=>c.name==='create_loan')).toBe(false);
+});
+
+test('flujo búsqueda de prestatario explica cuentas bloqueadas y permite ir a Clientes',async({page})=>{
+ await mockSupabase(page,'administrador',await dashboardFixtures());await login(page);await navigateModule(page,'Préstamos');
+ await page.getByRole('button',{name:'Nuevo préstamo',exact:true}).click();
+ await page.getByLabel('Buscar prestatario',{exact:true}).fill('12345670');
+ const option=page.locator('select[name="client"] option[value="client-0"]');
+ await expect(option).toHaveAttribute("disabled", "");await expect(option).toContainText('Ya tiene préstamo activo');
+ await page.getByRole('button',{name:'Ir a Clientes',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Clientes',level:1,exact:true})).toBeVisible();
+});
+
+test('flujo desde Clientes abre un préstamo con la persona ya elegida',async({page})=>{
+ await page.setViewportSize({width:375,height:900});
+ await mockSupabase(page,'administrador',await dashboardFixtures());await login(page);await navigateModule(page,'Clientes');
+ const maria=page.getByRole('article',{name:'Maria Liquidada',exact:true});
+ await maria.getByRole('button',{name:/^Maria Liquidada/}).click();
+ await maria.getByRole('button',{name:'Nuevo préstamo',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Préstamos',level:1,exact:true})).toBeVisible();
+ await expect(page.locator('select[name="client"]')).toHaveValue('client-2');
+ await expect(page.getByLabel('Monto del préstamo (S/)',{exact:true})).toBeEnabled();
+ await page.getByLabel('Monto del préstamo (S/)',{exact:true}).fill('1500');
+ await page.getByRole('button',{name:'Revisar cronograma',exact:true}).click();
+ await expect(page.getByRole('region',{name:'Revisión del préstamo',exact:true})).toContainText('Maria Liquidada');
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+ await page.evaluate(()=>{(document.activeElement as HTMLElement)?.blur();window.scrollTo(0,0);});
+ await page.screenshot({path:'test-results/rapi-persona-primero-movil.png',fullPage:true});
+});
+
+test('flujo cobrar desde Clientes muestra distribución y no arrastra importes entre personas',async({page})=>{
+ await mockSupabase(page,'administrador',await dashboardFixtures());await login(page);await navigateModule(page,'Clientes');
+ const ana=page.getByRole('article',{name:'Ana Socia',exact:true});await ana.getByRole('button',{name:/^Ana Socia/}).click();
+ await ana.getByRole('button',{name:'Registrar pago',exact:true}).click();
+ let detail=page.getByRole('dialog');await expect(detail).toContainText('Ana Socia');
+ const amount=detail.getByLabel('Monto (S/)',{exact:true});await amount.fill('50');
+ const preview=detail.locator('[aria-label="Distribución estimada del pago"]');
+ await expect(preview).toContainText('S/ 50.00');await expect(preview).toContainText('S/ 820.00');
+ await page.keyboard.press('Escape');
+ await page.getByRole('button',{name:'Ver detalle de Luis Trabajador',exact:true}).click();
+ detail=page.getByRole('dialog');await expect(detail.getByLabel('Monto (S/)',{exact:true})).toHaveValue('');
+});
+
+test('flujo caja anticipa aporte y retiro sin registrarlos antes de confirmar',async({page})=>{
+ const calls=await mockSupabase(page,'administrador',{...await dashboardFixtures(),cash_summary:cashFixture()});await login(page);
+ await page.getByRole('button',{name:'Ver caja',exact:true}).click();const detail=page.getByRole('dialog');
+ await detail.getByLabel('Importe (S/)',{exact:true}).fill('100');
+ await expect(detail.locator('[aria-label="Resultado previsto de caja"]')).toContainText('S/ 4,350.00');
+ await detail.getByLabel('Tipo de movimiento').selectOption('retiro');
+ await expect(detail.locator('[aria-label="Resultado previsto de caja"]')).toContainText('S/ 4,150.00');
+ expect(calls.some(c=>c.name==='record_cash_movement')).toBe(false);
+});
+
+test('flujo revisión se bloquea si otro administrador crea una deuda para esa persona',async({page})=>{
+ const fixtures=await dashboardFixtures();const calls=await mockSupabase(page,'administrador',fixtures);
+ await login(page);await navigateModule(page,'Préstamos');await openNewLoan(page);
+ await page.getByLabel('Monto del préstamo (S/)',{exact:true}).fill('500');await page.getByRole('button',{name:'Revisar cronograma',exact:true}).click();
+ const confirm=page.getByRole('button',{name:'Confirmar desembolso',exact:true});await expect(confirm).toBeEnabled();
+ fixtures.loans[2].status='activo';fixtures.loans[2].capital_pending=50000;
+ await returnToTab(page);await expect(confirm).toBeDisabled();
+ await expect(page.getByRole('region',{name:'Revisión del préstamo',exact:true})).toContainText('dejó de estar disponible');
+ expect(calls.some(c=>c.name==='create_loan')).toBe(false);
+});
+
+test('marca Rapi Créditos aparece en pestaña, acceso y menú con logo legible',async({page})=>{
+ await mockSupabase(page,'administrador');await page.goto('/');await expect(page).toHaveTitle('Rapi Créditos');
+ await expect(page.getByText('Bienvenido a Rapi Créditos',{exact:true})).toBeVisible();
+ const logo=page.getByRole('img',{name:'Plaza Móvil',exact:true});await expect(logo).toBeVisible();
+ await expect.poll(()=>logo.evaluate((img:HTMLImageElement)=>img.complete&&img.naturalWidth>0)).toBe(true);
+ await login(page);
+ await expect(page.locator('.brand-name')).toHaveCount(0);
+ await expect(page.locator('.brand-subtitle')).toHaveCount(0);
+ const visibleLogo=page.getByRole('img',{name:'Plaza Móvil',exact:true}).filter({visible:true});
+ await expect(visibleLogo).toBeVisible();
+ await expect(visibleLogo).toHaveAttribute('src',/plaza-movil-transparent/);
+ await page.screenshot({path:'test-results/solo-logo-dia.png'});
+ await page.getByRole('button',{name:'Contraer menú',exact:true}).click();
+ await expect(page.getByRole('img',{name:'Plaza Móvil',exact:true}).filter({visible:true})).toHaveAttribute('src',/plaza-movil-symbol/);
+ const iconHref=await page.locator('link[rel="icon"]').first().getAttribute('href');
+ expect(iconHref).toContain('/icon.svg');
+ const icon=await page.request.get(iconHref!);expect(icon.ok()).toBe(true);
+
+});
+
+
+test("Excel consulta caja global con perfil de lectura y conserva movimientos", async ({page}) => {
+ const fixtures={...await dashboardFixtures(),cash_summary:cashFixture(),cash_movements:[{id:"cash-opening",kind:"apertura",amount_cents:500000,note:"Inicio de caja",created_at:"2026-10-01T15:00:00Z"}]};
+ const calls=await mockSupabase(page,"jefe",fixtures);
+ await login(page);await navigateModule(page,"Reportes");
+ const downloaded=page.waitForEvent("download");
+ await page.getByRole("button",{name:"Panel de cobranza Excel",exact:true}).click();
+ const {default:ExcelJS}=await import("exceljs");const book=new ExcelJS.Workbook();
+ await book.xlsx.readFile((await (await downloaded).path())!);
+ const summary=book.getWorksheet("Resumen financiero")!;
+ const rows=summary.getRows(1,summary.rowCount)!;
+ expect(rows.find(row=>row.getCell(1).value==="DINERO DISPONIBLE EN CAJA")!.getCell(2).value).toBe(4250);
+ expect(rows.find(row=>row.getCell(5).value==="Inicio de caja")!.getCell(3).value).toBe(5000);
+ expect(calls).toHaveLength(0);
+});
+test("Excel avisa si falla la consulta de caja y evita una descarga incompleta", async ({page}) => {
+ await mockSupabase(page,"administrador",await dashboardFixtures());
+ await page.route("**/rest/v1/cash_movements*",route=>route.request().method()==="OPTIONS"?route.fallback():route.fulfill({status:500,contentType:"application/json",headers:{"access-control-allow-origin":"*"},body:JSON.stringify({message:"Sin conexión"})}));
+ await login(page);await navigateModule(page,"Reportes");
+ let downloads=0;page.on("download",()=>downloads++);
+ await page.getByRole("button",{name:"Panel de cobranza Excel",exact:true}).click();
+ await expect(page.getByText("No se pudieron consultar los movimientos de caja. Vuelve a exportar.",{exact:true})).toBeVisible();
+ expect(downloads).toBe(0);
+});
+
+test('Inicio muestra gráficos globales históricos, detalle mensual y conserva el capital al buscar un cliente',async({page})=>{
+ const fixtures=await dashboardFixtures();
+ await mockSupabase(page,'jefe',{...fixtures,cash_summary:cashFixture()});
+ await login(page);
+ const charts=page.getByRole('region',{name:'Gráficos financieros de todo el historial'});
+ await expect(charts).toContainText('Recuperación de capital');
+ await expect(charts.getByRole('heading',{name:'Interés cobrado',exact:true})).toBeVisible();
+ await charts.getByText('Ver detalle mensual',{exact:true}).click();
+ const table=charts.getByRole('table',{name:'Detalle mensual histórico'});
+ await expect(table).toBeVisible();await expect(table).toContainText('Capital devuelto');
+ const before=await charts.innerText();
+ await navigateModule(page,'Panel general');await page.getByRole('searchbox').fill('Ana');await navigateModule(page,'Inicio');
+ await expect(page.getByRole('searchbox')).toHaveCount(0);
+ await charts.getByText('Ver detalle mensual',{exact:true}).click();
+ expect(await charts.innerText()).toBe(before);
+ const summary=page.getByRole('region',{name:'Caja y ganancias',exact:true});
+ await expect(summary).toContainText('Capital por recuperar');
+});
+
+test('icono del navegador conserva transparencia y cambia negro o blanco según apariencia',async({page})=>{
+ await mockSupabase(page,'jefe');await page.goto('/');
+ const href=await page.locator('link[rel="icon"]').first().getAttribute('href');
+ expect(href).toContain('/icon.svg');
+ for(const scheme of ['light','dark'] as const){
+  await page.emulateMedia({colorScheme:scheme});
+  const pixels=await page.evaluate(async({href,scheme})=>{
+   const img=new Image();img.src=href+(href.includes('?')?'&':'?')+'appearance='+scheme;await img.decode();
+   const canvas=document.createElement('canvas');canvas.width=64;canvas.height=64;
+   const ctx=canvas.getContext('2d')!;ctx.drawImage(img,0,0,64,64);const data=ctx.getImageData(0,0,64,64).data;
+   const opaque=[];let transparent=0;
+   for(let index=0;index<data.length;index+=4){if(data[index+3]===0)transparent++;if(data[index+3]>240)opaque.push(data[index]);}
+   return {transparent,opaque:opaque.length,min:Math.min(...opaque),max:Math.max(...opaque)};
+  },{href:href!,scheme});
+  expect(pixels.transparent).toBeGreaterThan(1000);expect(pixels.opaque).toBeGreaterThan(100);
+  if(scheme==='light')expect(pixels.max).toBeLessThan(5);else expect(pixels.min).toBeGreaterThan(250);
+ }
+});
+
+test('nuevo Inicio conecta cada barra con la línea mensual, conserva descensos y permite acumulado',async({page})=>{
+ await page.setViewportSize({width:1440,height:1000});
+ const fixtures=await dashboardFixtures();
+ const {limaDate}=await import('../src/lib/portal');const today=limaDate();
+ const months=Array.from({length:4},(_,index)=>{const date=new Date(`${today.slice(0,7)}-01T00:00:00Z`);date.setUTCMonth(date.getUTCMonth()-3+index);return date.toISOString().slice(0,10);});
+ fixtures.payments=months.map((date,index)=>({...fixtures.payments[0],id:`monthly-${index}`,paid_on:date,interest_cents:[12000,24000,21500,12000][index],capital_cents:index===0?157000:0,amount_cents:[12000,24000,21500,12000][index]+(index===0?157000:0)}));
+ const calls=await mockSupabase(page,'jefe',{...fixtures,cash_summary:{...cashFixture(),interest_cents:'69500',received_cents:'226500',disbursed_cents:'400000',balance_cents:'326500'}});
+ await login(page);
+ await expect(page.locator('.home-summary')).toContainText('695.00');
+ await expect(page.locator('.home-capital-track')).toBeVisible();
+ const chart=page.getByRole('region',{name:'Gráficos financieros de todo el historial'});
+ await expect(chart.locator('.home-interest-bar')).toHaveCount(4);
+ const line=page.getByTestId('interest-trend-line');
+ const ys=()=>line.getAttribute('points').then(value=>value!.split(' ').map(p=>Number(p.split(',')[1])));
+ const monthly=await ys();expect(monthly).toHaveLength(4);expect(monthly[1]).toBeLessThan(monthly[0]);expect(monthly[2]).toBeGreaterThan(monthly[1]);expect(monthly[3]).toBeGreaterThan(monthly[2]);
+ const barY=await chart.locator('.home-interest-bar').evaluateAll(bars=>bars.map(bar=>Number(bar.getAttribute('y'))));expect(monthly).toEqual(barY);
+ await expect(chart).toContainText('Mes en curso');
+ await page.screenshot({path:'test-results/inicio-linea-escritorio.png',fullPage:true});
+ await chart.getByRole('button',{name:'Acumulado',exact:true}).click();
+ const cumulative=await ys();expect(cumulative[3]).toBeLessThan(cumulative[2]);expect(cumulative[2]).toBeLessThan(cumulative[1]);expect(cumulative[1]).toBeLessThan(cumulative[0]);
+ await chart.getByText('Ver detalle mensual',{exact:true}).click();await expect(chart.getByRole('table',{name:'Detalle mensual histórico'})).toContainText('695.00');
+ await chart.getByRole('button',{name:'Por mes',exact:true}).click();
+ await page.setViewportSize({width:375,height:1000});await page.emulateMedia({colorScheme:'dark'});
+ await page.evaluate(()=>{(document.activeElement as HTMLElement)?.blur();window.scrollTo(0,0);});
+ await page.screenshot({path:'test-results/inicio-linea-movil-noche.png',fullPage:true});
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+ expect(calls).toHaveLength(0);
+});
+
+test('nuevo Inicio ordena cierres próximos y permite abrir la cuenta o ir al panel',async({page})=>{
+ const fixtures=await dashboardFixtures();const {limaDate,addDays}=await import('../src/lib/portal');const today=limaDate();
+ const active=fixtures.loans.filter(l=>l.status==='activo');
+ for(const [index,loan] of active.entries()){const period=fixtures.loan_periods.find(p=>p.loan_id===loan.id&&p.is_current)!;period.end_date=addDays(today,[5,1,3][index]);}
+ await mockSupabase(page,'jefe',{...fixtures,cash_summary:cashFixture()});await login(page);
+ const upcoming=page.getByRole('region',{name:'Próximos vencimientos',exact:true});
+ const buttons=upcoming.locator('.home-upcoming-list button');await expect(buttons).toHaveCount(3);
+ await expect(buttons.first()).toContainText('Mañana');await expect(buttons.nth(1)).toContainText('En 3 días');await expect(buttons.nth(2)).toContainText('En 5 días');
+ await buttons.first().click();await expect(page.getByRole('dialog')).toBeVisible();await expect(page.getByRole('dialog').getByRole('button',{name:'Confirmar pago',exact:true})).toHaveCount(0);await page.keyboard.press('Escape');
+ await upcoming.getByRole('button',{name:'Ver panel',exact:true}).click();await expect(page.getByRole('heading',{name:'Panel general',exact:true,level:1})).toBeVisible();
+});
+
+
+test('el filtro anual conserva el acumulado anterior y la línea incluye meses sin cobros',async({page})=>{
+ const fixtures=await dashboardFixtures();const {limaDate}=await import('../src/lib/portal');const today=limaDate();const year=Number(today.slice(0,4));
+ fixtures.payments=[{...fixtures.payments[0],id:'past-year',paid_on:`${year-1}-12-01`,interest_cents:1000},{...fixtures.payments[0],id:'this-month',paid_on:today,interest_cents:2000}];
+ await mockSupabase(page,'jefe',{...fixtures,cash_summary:{...cashFixture(),interest_cents:'3000'}});await login(page);
+ const chart=page.getByRole('region',{name:'Gráficos financieros de todo el historial'});
+ await chart.getByRole('button',{name:'Acumulado',exact:true}).click();await chart.getByRole('combobox',{name:'Año del gráfico'}).selectOption(String(year));
+ await chart.getByText('Ver detalle mensual',{exact:true}).click();const table=chart.getByRole('table',{name:'Detalle mensual histórico'});
+ const rows=table.getByRole('row');expect(await rows.count()).toBe(Number(today.slice(5,7))+1);
+ if(today.slice(5,7)!=='01'){await expect(rows.nth(1)).toContainText('0.00');await expect(rows.nth(1)).toContainText('10.00');}
+ await expect(rows.last()).toContainText('30.00');
+ const line=page.getByTestId('interest-trend-line');expect((await line.getAttribute('points'))!.split(' ')).toHaveLength(Number(today.slice(5,7)));
+});
+
+async function correctionScenario(page:Page,{stale=false,lostResponse=false,role='administrador',discounted=false,supportsDiscount=false}:{stale?:boolean;lostResponse?:boolean;role?:'administrador'|'jefe';discounted?:boolean;supportsDiscount?:boolean}={}){
+ const base=await dashboardFixtures();const tables={...base,payments:base.payments.map(p=>({...p,interest_discount_cents:discounted?3000:0})),payment_corrections:[] as unknown[],cash_summary:cashFixture()};
+ const calls=await mockSupabase(page,role,tables);const requests:{name:string;body:Record<string,unknown>}[]=[];let reviews=0;let confirms=0;let committed=false;
+ const headers={'access-control-allow-origin':'*','access-control-allow-headers':'*','content-type':'application/json'};
+ await page.route(/\/rest\/v1\/rpc\/(preview_payment_correction|correct_payment)$/,async route=>{
+  if(route.request().method()==='OPTIONS'){await route.fulfill({status:204,headers});return;}
+  const name=new URL(route.request().url()).pathname.split('/').at(-1)!;const body=route.request().postDataJSON();requests.push({name,body});
+  const p=tables.payments.find(p=>p.id===body.p_payment)??base.payments[0];
+  if(name==='preview_payment_correction'){
+   reviews++;const annul=body.p_action==='anular';const next=annul?null:{...p,amount_cents:body.p_amount,paid_on:body.p_paid_on};
+   await route.fulfill({headers,body:JSON.stringify({discounts_supported:supportsDiscount,confirmation_token:reviews===1?'a'.repeat(32):'b'.repeat(32),payment_id:p.id,full_name:'Maria Liquidada',dni:'12345672',balance_before_cents:'0',balance_after_cents:annul?'106000':String(p.amount_cents-body.p_amount),cash_delta_cents:annul?String(-p.amount_cents):String(body.p_amount-p.amount_cents),interest_delta_cents:annul?'-6000':'0',penalty_delta_cents:'0',status_after:'activo',periods_count:1,recalculated_payments:annul?0:1,before_payment:p,after_payment:next})});return;
+  }
+  confirms++;
+  if(stale&&confirms===1){await route.fulfill({status:400,headers,body:JSON.stringify({message:'Los datos cambiaron. Actualiza la revisión antes de confirmar'})});return;}
+  if(!committed){
+   const before={...p};const loan=tables.loans.find(l=>l.id===p.loan_id)!;
+   if(body.p_action==='anular'){tables.payments=tables.payments.filter(row=>row.id!==p.id);loan.capital_pending=100000;loan.interest_pending=6000;}
+   else {p.amount_cents=body.p_amount;p.paid_on=body.p_paid_on;loan.capital_pending=106000-body.p_amount;}
+   loan.status='activo';tables.payment_corrections.push({id:'correction-1',action:body.p_action,reason:body.p_reason,created_at:new Date().toISOString(),before_payment:before,after_payment:body.p_action==='anular'?null:{...p}});committed=true;
+  }
+  if(lostResponse&&confirms===1){await route.fulfill({status:503,headers,body:JSON.stringify({message:'No se recibió la confirmación. Intenta nuevamente.'})});return;}
+  await route.fulfill({headers,body:JSON.stringify('33333333-3333-4333-8333-333333333333')});
+ });
+ await login(page);await navigateModule(page,'Panel general');await page.getByRole('button',{name:'Ver detalle de Maria Liquidada',exact:true}).click();
+ return {tables,calls,requests,detail:page.getByRole('dialog')};
+}
+
+test('administrador revisa y anula duplicado; saldo se reabre y el original se conserva en auditoría',async({page})=>{
+ const {detail,requests}=await correctionScenario(page);
+ await detail.getByRole('button',{name:/Corregir pago 1:/}).click();const form=detail.getByRole('region',{name:'Corregir pago registrado'});
+ await form.getByRole('combobox',{name:'Tipo de corrección'}).selectOption('anular');await form.getByLabel('Motivo de la corrección').fill('Se registró dos veces por error');
+ await form.getByRole('button',{name:'Revisar corrección',exact:true}).click();
+ const confirm=form.getByRole('button',{name:'Confirmar anulación del pago',exact:true});await expect(confirm).toBeDisabled();
+ await expect(form.getByRole('region',{name:'Revisión de la corrección'})).toContainText('1,060.00');
+ expect(requests.filter(r=>r.name==='correct_payment')).toHaveLength(0);
+ await form.getByRole('checkbox').check();await confirm.click();
+ await expect(form).toHaveCount(0);await expect(detail.getByRole('table',{name:'Pagos de este préstamo'})).not.toBeVisible();
+ await detail.getByText('Correcciones anteriores',{exact:true}).click();const audit=detail.getByRole('table',{name:'Auditoría de correcciones de pagos'});await expect(audit).toContainText('Anulado');await expect(audit).toContainText('Se registró dos veces por error');await expect(audit).toContainText('1,060.00');
+ expect(requests.filter(r=>r.name==='correct_payment')).toHaveLength(1);
+});
+
+test('corregir monto y fecha invalida la revisión al editar; una revisión obsoleta no se confirma',async({page})=>{
+ const {detail,requests}=await correctionScenario(page,{stale:true});const {limaDate,addDays}=await import('../src/lib/portal');
+ await detail.getByRole('button',{name:/Corregir pago 1:/}).click();const form=detail.getByRole('region',{name:'Corregir pago registrado'});
+ await form.getByLabel('Monto aplicado al préstamo (S/)',{exact:true}).fill('1000');await form.getByLabel('Fecha correcta del pago').fill(addDays(limaDate(),-1));await form.getByLabel('Motivo de la corrección').fill('Monto equivocado al registrar');
+ await form.getByRole('button',{name:'Revisar corrección',exact:true}).click();await expect(form.getByRole('button',{name:'Confirmar corrección del pago',exact:true})).toBeDisabled();
+ await form.getByLabel('Monto aplicado al préstamo (S/)',{exact:true}).fill('990');await expect(form.getByRole('region',{name:'Revisión de la corrección'})).toHaveCount(0);
+ await form.getByRole('button',{name:'Revisar corrección',exact:true}).click();await form.getByRole('checkbox').check();await form.getByRole('button',{name:'Confirmar corrección del pago',exact:true}).click();
+ await expect(form).toContainText('Los datos cambiaron');await expect(form.getByRole('region',{name:'Revisión de la corrección'})).toHaveCount(0);
+ await form.getByRole('button',{name:'Revisar corrección',exact:true}).click();await form.getByRole('checkbox').check();await form.getByRole('button',{name:'Confirmar corrección del pago',exact:true}).click();await expect(form).toHaveCount(0);
+ const commits=requests.filter(r=>r.name==='correct_payment');expect(commits).toHaveLength(2);expect(commits[1].body).toMatchObject({p_amount:99000,p_paid_on:addDays(limaDate(),-1)});
+});
+
+test('reintentar corrección tras perder respuesta conserva el UUID y no repite el ajuste',async({page})=>{
+ const {detail,requests,tables}=await correctionScenario(page,{lostResponse:true});await detail.getByRole('button',{name:/Corregir pago 1:/}).click();const form=detail.getByRole('region',{name:'Corregir pago registrado'});
+ await form.getByRole('combobox',{name:'Tipo de corrección'}).selectOption('anular');await form.getByLabel('Motivo de la corrección').fill('Pago duplicado');await form.getByRole('button',{name:'Revisar corrección',exact:true}).click();await form.getByRole('checkbox').check();await form.getByRole('button',{name:'Confirmar anulación del pago',exact:true}).click();
+ await expect(form).toContainText('No se recibió la confirmación');await form.getByRole('button',{name:'Confirmar anulación del pago',exact:true}).click();await expect(form).toHaveCount(0);
+ const commits=requests.filter(r=>r.name==='correct_payment');expect(commits).toHaveLength(2);expect(commits[0].body.p_request).toBe(commits[1].body.p_request);expect(tables.payment_corrections).toHaveLength(1);
+});
+
+test('consulta no muestra botones para corregir pagos ni la auditoría administrativa',async({page})=>{
+ const {detail,requests}=await correctionScenario(page,{role:'jefe'});await expect(detail.getByRole('table',{name:'Pagos de este préstamo'})).toBeVisible();await expect(detail.getByRole('button',{name:/Corregir/})).toHaveCount(0);await expect(detail.getByText('Correcciones anteriores',{exact:true})).toHaveCount(0);expect(requests).toHaveLength(0);
+});
+
+test('aviso de posible duplicado exige revisar antes de registrar otro cobro igual',async({page})=>{
+ const fixtures=await dashboardFixtures();const {limaDate}=await import('../src/lib/portal');fixtures.payments.push({...fixtures.payments[0],id:'same-amount',loan_id:'loan-0',period_id:'period-0',amount_cents:26500,paid_on:limaDate()});
+ const calls=await mockSupabase(page,'administrador',fixtures);await login(page);await navigateModule(page,'Panel general');await page.getByRole('button',{name:'Ver detalle de Ana Socia',exact:true}).click();const detail=page.getByRole('dialog');await detail.getByLabel('Monto (S/)',{exact:true}).fill('265');
+ await expect(detail.getByRole('note')).toContainText('Posible pago duplicado');
+ let confirmation='';page.once('dialog',async dialog=>{confirmation=dialog.message();await dialog.dismiss();});await detail.getByRole('button',{name:'Confirmar pago',exact:true}).click();expect(confirmation).toContain('ATENCIÓN: ya hay 1 pago');expect(calls).toHaveLength(0);
+});
+
+test('corrección móvil muestra la revisión y el enlace a SQL si falta activar la función',async({page})=>{
+ const {detail}=await correctionScenario(page);await page.setViewportSize({width:375,height:900});await page.emulateMedia({colorScheme:'dark'});
+ await detail.getByRole('button',{name:/Corregir pago 1:/}).click();const form=detail.getByRole('region',{name:'Corregir pago registrado'});
+ await form.getByRole('combobox',{name:'Tipo de corrección'}).selectOption('anular');await form.getByLabel('Motivo de la corrección').fill('Pago registrado por duplicado');await form.getByRole('button',{name:'Revisar corrección',exact:true}).click();
+ await expect(form.getByRole('region',{name:'Revisión de la corrección'})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+ await page.screenshot({path:'test-results/correccion-pago-movil.png',fullPage:true});
+ await form.getByLabel('Motivo de la corrección').fill('Duplicado confirmado en revisión');
+ await page.route('**/rest/v1/rpc/preview_payment_correction',route=>route.request().method()==='OPTIONS'?route.fulfill({status:204,headers:{'access-control-allow-origin':'*','access-control-allow-headers':'*'}}):route.fulfill({status:404,headers:{'access-control-allow-origin':'*','content-type':'application/json'},body:JSON.stringify({code:'PGRST202',message:'Could not find the function'})}));
+ await form.getByRole('button',{name:'Revisar corrección',exact:true}).click();await expect(form.getByRole('link',{name:'Abrir SQL de correcciones de pagos'})).toHaveAttribute('href',/202611040011_payment_corrections.sql/);await expect(form.getByRole('button',{name:'Confirmar anulación del pago',exact:true})).toHaveCount(0);
+});
+
 test("cancelación anticipada muestra descuento, valida el límite y confirma importe definitivo", async ({page}) => {
   const fixtures = await dashboardFixtures();
   const calls = await mockSupabase(page, "administrador", fixtures);
@@ -1220,4 +2228,20 @@ for (const scenario of ["jefe", "vencido"] as const) {
     await page.getByRole("button", {name: "Ver detalle de Ana Socia", exact: true}).click();
     await expect(page.getByText("Cancelación anticipada con descuento", {exact: true})).toHaveCount(0);
   });
+}
+
+for(const supportsDiscount of [false,true]) {
+ test(`corrección de pago con descuento verifica compatibilidad de SQL: ${supportsDiscount}`,async({page})=>{
+  const {detail}=await correctionScenario(page,{discounted:true,supportsDiscount});
+  await detail.getByRole('button',{name:/Corregir pago 1:/}).click();
+  const form=detail.getByRole('region',{name:'Corregir pago registrado'});
+  await form.getByRole('combobox',{name:'Tipo de corrección'}).selectOption('anular');
+  await form.getByLabel('Motivo de la corrección').fill('Pago con descuento registrado por error');
+  await form.getByRole('button',{name:'Revisar corrección',exact:true}).click();
+  if(supportsDiscount) await expect(form.getByRole('region',{name:'Revisión de la corrección'})).toBeVisible();
+  else {
+   await expect(form).toContainText('aplica la migración 012');
+   await expect(form.getByRole('button',{name:'Confirmar anulación del pago',exact:true})).toHaveCount(0);
+  }
+ });
 }

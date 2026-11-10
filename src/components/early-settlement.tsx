@@ -28,7 +28,7 @@ export function EarlySettlement({ loan, period, today, busy, onConfirm }: {
     if (!quote || !validDate) return;
     await onConfirm(
       { p_loan: loan.id, p_amount: quote.totalCents, p_discount: cents(discount), p_paid_on: paidOn },
-      `¿Cancelar anticipadamente el préstamo cobrando ${formatPEN(quote.totalCents)} y descontando ${formatPEN(cents(discount))} de interés? Se cobrará todo el capital pendiente. El préstamo quedará liquidado; esta operación no se podrá anular.`,
+      `¿Cancelar anticipadamente el préstamo cobrando ${formatPEN(quote.totalCents)} y descontando ${formatPEN(cents(discount))} de interés? Se cobrará todo el capital pendiente. El préstamo quedará liquidado; la operación quedará registrada en el historial.`,
     );
   }
   return (

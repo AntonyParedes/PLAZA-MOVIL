@@ -1,13 +1,14 @@
 "use client";
 import { useEffect, useState } from "react";
-import { ChevronDown, MessageCircle, Pencil, RefreshCw } from "lucide-react";
+import { ChevronDown, MessageCircle, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { useLiveRevision } from "@/hooks/use-live-revision";
 import { getSupabase } from "@/lib/supabase";
 import {
   clientAccount,
   clientWhatsApp,
   type AccountData,
 } from "@/lib/client-account";
-import { dateLabel, limaDate, type Customer } from "@/lib/portal";
+import { paymentReceived, dateLabel, limaDate, type Customer } from "@/lib/portal";
 import { formatPEN } from "@/lib/finance";
 import { Badge, EmptyState, Notice, PaymentBadge } from "./ui/dashboard";
 import { Button } from "./ui/button";
@@ -21,10 +22,16 @@ export default function ClientDirectory({
   clients,
   role,
   onEdit,
+  onDelete,
+  onNewLoan,
+  onOpenLoan,
 }: {
   clients: DirectoryClient[];
   role: "administrador" | "jefe";
   onEdit: (client: DirectoryClient) => void;
+  onDelete: (client: DirectoryClient) => void;
+  onNewLoan: (id: string) => void;
+  onOpenLoan: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [data, setData] = useState<AccountData>({
@@ -34,8 +41,10 @@ export default function ClientDirectory({
     installments: [],
   });
   const [loading, setLoading] = useState(true);
+  const [hasData, setHasData] = useState(false);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
+  const liveRevision = useLiveRevision();
   const [today, setToday] = useState(limaDate);
   useEffect(() => {
     const timer = setInterval(() => setToday(limaDate()), 60000);
@@ -68,8 +77,10 @@ export default function ClientDirectory({
             fetchRows,
           ),
         );
-        if (active)
+        if (active) {
           setData({ loans, periods, payments, installments } as AccountData);
+          setHasData(true);
+        }
       } catch {
         if (active)
           setError("No se pudieron cargar los préstamos. Intenta actualizar.");
@@ -81,13 +92,13 @@ export default function ClientDirectory({
     return () => {
       active = false;
     };
-  }, [revision]);
+  }, [revision, liveRevision]);
   return (
     <div className="space-y-3">
       {error && <Notice error>{error}</Notice>}
       <div className="flex items-center justify-between gap-3">
         <p role="status" className="text-xs text-slate-500">
-          {loading
+          {loading && !hasData
             ? "Actualizando préstamos…"
             : "Pulsa un nombre para ver su cuenta. WhatsApp prepara el mensaje; tú lo envías."}
         </p>
@@ -108,6 +119,7 @@ export default function ClientDirectory({
       {clients.map((client) => {
         const account = clientAccount(client.id, data, today);
         const open = expanded === client.id;
+        const activeEntry = account.entries.find(entry => entry.loan.status === "activo");
         const tone = ["En mora", "Liquidación urgente"].includes(account.state)
           ? "danger"
           : account.state === "Atrasado"
@@ -119,12 +131,12 @@ export default function ClientDirectory({
           account.state === "Atrasado"
             ? `Se atrasó ${account.daysLate} días`
             : account.state;
-        const ready = !loading && !error;
+        const ready = hasData;
         return (
           <article
             key={client.id}
             aria-label={client.full_name}
-            className="surface overflow-hidden"
+            className="client-card surface overflow-hidden"
           >
             <div className="flex flex-col items-stretch gap-3 p-4 sm:flex-row sm:items-center sm:p-5">
               <button
@@ -231,11 +243,15 @@ export default function ClientDirectory({
                       </div>
                     )}
                   </div>
-                  {role === "administrador" && (
+                  <div className="flex flex-wrap gap-2">
+                    {ready && activeEntry && <Button onClick={() => onOpenLoan(activeEntry.loan.id)}>{role === "administrador" ? "Registrar pago" : "Ver préstamo"}</Button>}
+                    {ready && !activeEntry && role === "administrador" && client.stand_code && client.member_type && <Button onClick={() => onNewLoan(client.id)}>Nuevo préstamo</Button>}
+                    {role === "administrador" && <>
                     <Button variant="outline" onClick={() => onEdit(client)}>
                       <Pencil size={15} /> Editar
                     </Button>
-                  )}
+                    </>}
+                  </div>
                 </div>
                 {ready ? (
                   <>
@@ -374,10 +390,11 @@ export default function ClientDirectory({
                                     className="rounded-xl bg-slate-50 p-3 text-sm"
                                   >
                                     {dateLabel(p.paid_on)} ·{" "}
-                                    {formatPEN(p.amount_cents)} · Interés:{" "}
+                                    {formatPEN(paymentReceived(p))} · Interés:{" "}
                                     {formatPEN(p.interest_cents)} · Capital:{" "}
                                     {formatPEN(p.capital_cents)}
                                     {(p.interest_discount_cents ?? 0) > 0 && <> · Descuento de interés: {formatPEN(p.interest_discount_cents!)}</>}
+                                    {(p.penalty_cents ?? 0) > 0 && <span className="block mt-1">Penalidad: {formatPEN(p.penalty_cents!)} · {p.penalty_reason}</span>}
                                   </div>
                                 ))}
                               {!account.payments.some(
@@ -428,6 +445,7 @@ export default function ClientDirectory({
                     </div>
                   )}
                 </dl>
+                {role === "administrador" && <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4"><p className="text-xs text-slate-500">Eliminar está reservado para registros creados por error y requiere confirmar el DNI.</p><Button variant="outline" className="text-[var(--danger-text)]" onClick={() => onDelete(client)} aria-label={`Eliminar cliente ${client.full_name}`}><Trash2 size={15} /> Eliminar cliente</Button></div>}
               </div>
             )}
           </article>

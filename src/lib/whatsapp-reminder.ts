@@ -39,7 +39,7 @@ export function whatsappReminder(
   const loanState = collectionStatus(loan, periods, installments, today);
   if (loanState.requiresSettlement)
     return [
-      `Hola ${client.full_name}, te contactamos de PM Créditos.`,
+      `Hola ${client.full_name}, te contactamos de Rapi Créditos.`,
       "",
       "Estado del préstamo: Liquidación urgente",
       `El plazo de tu préstamo terminó el ${dateLabel(loanState.termEndDate!)}.`,
@@ -50,10 +50,10 @@ export function whatsappReminder(
       "",
       "Atentamente,",
       "La Gerencia",
-      "PM Créditos",
+      "Rapi Créditos",
     ].join("\n");
   const lines = [
-    `Hola ${client.full_name}, te contactamos de PM Créditos.`,
+    `Hola ${client.full_name}, te contactamos de Rapi Créditos.`,
     "",
     `Cuota: ${installment.number}`,
     `Fecha de vencimiento: ${dateLabel(installment.due_date)}`,
@@ -79,6 +79,6 @@ export function whatsappReminder(
         : "Te recordamos realizar el pago en la fecha acordada.",
     );
   }
-  lines.push("", "Atentamente,", "La Gerencia", "PM Créditos");
+  lines.push("", "Atentamente,", "La Gerencia", "Rapi Créditos");
   return lines.join("\n");
 }

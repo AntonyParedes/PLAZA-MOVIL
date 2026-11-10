@@ -8,20 +8,22 @@ La interfaz anterior reunía las tareas financieras en pestañas de una sola pan
 
 La interfaz utiliza verde #4EB852, morado #9763A8 y gris #A9ABAE, con blanco y negro según el contraste. Las acciones principales son verdes, los acentos morados y la navegación violeta oscuro. Usa tipografía Geist local con licencia OFL. El archivo local evita descargas de fuentes durante la compilación. Pagado/liquidado se muestran en verde, pendiente/atrasado en ámbar y vencido/mora en rojo; los estados siempre incluyen texto.
 
-`src/components/app-shell.tsx` centraliza navegación, encabezado, búsqueda compartida y menú de usuario. En escritorio se puede plegar el menú. En tablet y móvil se utiliza un diálogo de navegación con foco controlado y cierre con Escape.
+`src/components/app-shell.tsx` centraliza navegación, encabezado y menú de usuario. En escritorio se puede plegar el menú. En tablet y móvil se utiliza un diálogo de navegación con foco controlado y cierre con Escape.
 
 `src/components/ui/dashboard.tsx` comparte tarjetas, indicadores, etiquetas, estados vacíos, mensajes, skeletons, tablas y paneles laterales. Las tablas conservan encabezados semánticos y una descripción. En móviles se presentan como tarjetas etiquetadas; en pantallas mayores, las tablas extensas se desplazan dentro de su contenedor. Los controles tienen una altura mínima de 44 px. Los paneles gestionan el foco, contienen la navegación con Tab y devuelven el foco al cerrar. El enlace «Ir al contenido» está disponible por teclado.
 
+El menú tiene seis módulos: Inicio, Panel general, Clientes, Préstamos, Reportes y Configuración, agrupados en Operaciones, Análisis y Herramientas. Panel general tiene acceso directo para cobranza; Préstamos conserva la cartera compartida, el formulario de nuevo préstamo y Refinanciaciones mediante controles internos; ambos mantienen el mismo detalle y los permisos existentes. Cada pantalla utiliza un único buscador contextual compartido (`ClientSearch`), con opción de limpiar el texto.
+
 ## Módulos y datos
 
-- **Dashboard:** capital original prestado, capital pendiente, total cobrado, interés cobrado, pagos recibidos hoy, cuotas vencidas, préstamos activos y liquidados. Capital pendiente excluye interés; Saldo en el panel general incluye ambos. «Cobros de hoy y esta semana» consulta el cronograma vigente y muestra cuotas pagadas, pendientes y vencidas.
-- **Panel general:** muestra solo Prestatario, Fecha del préstamo, Día de pago (día de la semana), Saldo, Cuota semanal y Estado. Los atrasados aparecen primero por días de atraso; después se ordenan por el vencimiento pendiente y los liquidados quedan al final. El nombre abre el detalle con identificación, fechas, refinanciación, cronograma, pagos y recordatorio por WhatsApp de la cuota vigente pendiente más antigua. Excel y CSV conservan todas sus columnas. Mantiene los filtros y reglas de atraso: de 1 a 6 días «Se atrasó X días», desde 7 «En mora». La refinanciación se muestra por separado. La búsqueda es por nombre, DNI o stand; no hay filtro por rango de fechas.
+- **Inicio:** capital original prestado, capital pendiente, total cobrado, interés cobrado, pagos recibidos hoy, cuotas vencidas, préstamos activos y liquidados. Capital pendiente excluye interés; Saldo en el panel general incluye ambos. «Cobros de hoy y esta semana» consulta el cronograma vigente y muestra cuotas pagadas, pendientes y vencidas.
+- **Cartera dentro de Préstamos:** muestra solo Prestatario, Fecha del préstamo, Día de pago (día de la semana), Saldo, Cuota semanal y Estado. Los atrasados aparecen primero por días de atraso; después se ordenan por el vencimiento pendiente y los liquidados quedan al final. El nombre abre el detalle con identificación, fechas, refinanciación, cronograma, pagos y recordatorio por WhatsApp de la cuota vigente pendiente más antigua. Excel y CSV conservan todas sus columnas. Mantiene los filtros y reglas de atraso: de 1 a 6 días «Se atrasó X días», desde 7 «En mora». La refinanciación se muestra por separado. La búsqueda es por nombre, DNI o stand; no hay filtro por rango de fechas.
 - **Clientes:** búsqueda por nombre/DNI/stand y filtro de condición. Cada fila muestra nombre, socio/trabajador, stand, Saldo restante, Interés cobrado (ganancia) y WhatsApp. Los importes se ven sin desplegar el cliente; durante la carga muestran «Cargando…» y si falla la consulta «No disponible», en vez de aparentar saldo cero. Pulsar el nombre despliega su cuenta debajo, sin cambiar de módulo: Saldo, interés cobrado (ganancia), estado, atraso, préstamos, cuotas, pagos y datos de contacto. Solo un cliente se despliega a la vez; la edición del administrador está dentro del detalle. Los fondos son verdes para puntual/liquidado, ámbar para atraso y rojos desde 7 días de mora, con etiquetas de texto. El cliente sin préstamos usa un fondo neutro. Ganancia suma el interés efectivamente pagado de todos sus préstamos, sin capital ni interés pendiente o generado sin cobrar.
 - **Préstamos:** productos autorizados, vista previa de cuotas y confirmación del desembolso.
-- **Refinanciaciones:** préstamos activos con condiciones pendientes y periodos refinanciados. La acción mantiene los bloqueos existentes por interés y cuotas vencidas pendientes.
+- **Refinanciaciones (dentro de Préstamos):** préstamos activos con condiciones pendientes y periodos refinanciados. La acción exige interés completamente pagado y periodo vencido; las cuotas vencidas pendientes no la bloquean.
 - **Reportes:** conserva las exportaciones y los totales por semana/mes.
 - **Configuración:** muestra moneda, idioma, zona horaria y alcance del rol actual. Es informativa; los roles continúan gestionándose por el responsable del sistema.
-- **Revisar Excel:** conserva la revisión local y sus advertencias; no realiza importación a la base de datos.
+- **Revisar Excel (dentro de Configuración, solo administrador):** conserva la revisión local y sus advertencias; no realiza importación a la base de datos.
 
 ## Apariencia día y noche
 
@@ -74,3 +76,39 @@ La selección de préstamos incluye S/2.000 al 6 % mensual por dos meses: ocho c
 Panel general resalta en morado suave la fila y muestra «Vence hoy» en Día de pago cuando existe una cuota vigente, con saldo pendiente y vencimiento exactamente igual a la fecha de Lima. No se compara solo el día de la semana: una cuota de hace siete días sigue atrasada y no se resalta como vencimiento de hoy. Las cuotas pagadas y los periodos históricos no activan el resaltado. El estado de cobranza conserva su color y prioridad. La fecha se actualiza cada minuto y el resaltado adapta el contraste al modo noche y a las tarjetas de celular.
 
 Cobros semanales e Historial de pagos ya no son módulos del menú. El Dashboard mantiene la agenda de cobros; los detalles de préstamo permiten cobrar, consultar pagos y preparar recordatorios. Reportes conserva sus exportaciones.
+
+## Optimización operativa
+
+Inicio prioriza Capital pendiente, Total cobrado, Cobros del día y Cuotas vencidas. Capital prestado, Intereses cobrados y recuentos de préstamos quedan en «Más indicadores de cartera». La agenda permite Hoy, Esta semana, Vencidos y Próximos 7 días, conservando el registro de pago y WhatsApp. Hoy/semana incluyen cuotas pagadas; vencidos/próximos muestran solo cuotas con saldo pendiente. Las cuotas históricas no contaminan la agenda.
+
+La cartera de Préstamos conserva siete columnas; el nuevo préstamo se prepara junto a esta cartera y mantiene revisión de cronograma y confirmación del desembolso. Los detalles concentran pagos, liquidación y refinanciación. Reportes centraliza las exportaciones: Excel completo, resumen de cobranza filtrable y todos los informes anteriores en Excel/CSV, junto a agregados por semana/mes.
+
+Para evitar recorridos repetidos se mantienen índices en memoria de clientes, préstamos y periodos vigentes. Se recalculan cuando cambia su origen, sin alterar consultas de Supabase ni importes.
+
+## Consulta y sincronización
+
+El rol `jefe` se identifica como Solo lectura y conserva los permisos de consulta existentes. La interfaz vuelve a leer clientes y operaciones tras eventos de Supabase Realtime, con respaldo cada 30 segundos y al volver de una pestaña oculta a visible. El responsable debe habilitar la publicación Realtime y crear el usuario conforme a `docs/ACCESO-CONSULTA.md`. No se crean cuentas ni se modifica la publicación de producción desde el navegador.
+
+## Panel general con acceso directo
+
+Se restaura su entrada lateral y su título propio por la prioridad operativa de cobranza. Conserva siete columnas, filtros por condición y estado, búsqueda por nombre/DNI/stand, urgencia, mora y resaltado del día. Abre el mismo detalle autorizado. El formulario de nuevo préstamo aparece solo en Préstamos; ambas vistas reutilizan la tabla y los cálculos, sin duplicar implementación ni añadir consultas por navegar entre ellas. La sincronización y el rol de consulta se mantienen.
+
+## Refinanciación después del periodo (14/10/2026)
+
+Las cuotas vencidas dejan de bloquear la operación. Interfaz y RPC 005 exigen préstamo activo con capital pendiente, interés cancelado y fecha de Lima posterior al vencimiento vigente. El nuevo mes comienza al día siguiente del vencimiento anterior, conserva tasa sobre capital original y genera cuatro cuotas semanales. El detalle muestra inicio y fin antes de confirmar; el historial previo permanece íntegro. El rol de consulta no puede ejecutar la operación. La migración 005 debe aplicarse en Supabase para actualizar también la validación del servidor.
+
+## Préstamos con monto ingresado (15/10/2026)
+
+El formulario reemplaza la lista de productos por Monto del préstamo y Plazo del préstamo. Hasta S/500 usa 7 % mensual; importes mayores usan 6 %. Permite montos positivos con céntimos, uno o dos meses, vista previa de cuatro u ocho cuotas y confirmación del total. Cambiar monto o plazo invalida la vista previa anterior. La RPC valida la misma política. La refinanciación mantiene tasa original, interés pagado y periodo terminado; comienza el día siguiente al vencimiento anterior. Si el servidor responde con las reglas antiguas, el error informa que falta aplicar SQL 006 y ofrece acceso al archivo.
+
+## Refinanciación con fecha y plazo seleccionables
+
+El detalle del préstamo permite Fecha de refinanciación y Plazo de refinanciación (uno o dos meses). La propuesta inicial mantiene el día siguiente al vencimiento y un mes, pero el administrador puede elegir una fecha posterior hasta hoy y ocho cuotas. El interés se multiplica por los meses sobre capital original; las cuotas distribuyen capital pendiente y el nuevo interés. Muestra fechas, importe de interés, total y cada cuota antes de confirmar. Cambiar de préstamo o de periodo vigente reinicia la propuesta y evita arrastrar fechas de otra cuenta.
+
+La migración 007 incorpora los montos flexibles de 006 y el nuevo RPC de refinanciación con fecha/plazo. Conserva la llamada anterior de dos argumentos para clientes antiguos, con validación de administrador y solicitudes idempotentes. Los pagos e históricos existentes no se recalculan.
+
+## Actualización sin parpadeos y cuotas originales (16/10/2026)
+
+La pantalla de carga financiera se muestra únicamente antes de la primera respuesta válida. Las consultas posteriores mantienen montados el detalle, formularios, borradores, foco y posición; sustituyen los datos al recibir una respuesta válida. Clientes conserva saldos, ganancias, estado y WhatsApp durante la sincronización, con aviso si falla la actualización. El estado de actualización financiero se anuncia sin insertar un bloque que desplace el contenido.
+
+Los cambios de foco de ventana sin ocultar la página ya no disparan consultas. El paso real de oculto a visible sí sincroniza; se conservan Realtime y el respaldo periódico de 30 segundos. Las siete columnas del Panel general incluyen N.º de cuotas inmediatamente después de Fecha del préstamo: se obtiene del periodo original (meses × 4), sin sustituirlo por el plazo de una refinanciación. Si falta el periodo original se muestra «—». El CSV del panel incluye el mismo dato. No requiere una migración de Supabase.
